@@ -31,9 +31,10 @@ wt() { local p; p=$(command wt "$@") && [[ -d "$p" ]] && cd "$p" || echo "$p"; }
 
 ### Bonus: Launch Claude Code after
 
-Create a `wtc` function to create a worktree and start coding with Claude:
+Add a `wtc` function to your shell config to create a worktree and start coding with Claude:
 
 ```sh
+# In your .zshrc or .bashrc
 wtc() { wt "$@" && claude; }
 ```
 
