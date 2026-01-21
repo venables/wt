@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+copy_worktree_files() {
+  local src=$1 dest=$2
+  local include="$src/.worktreeinclude" gitignore="$src/.gitignore"
+  local patterns_file=""
+
+  [[ -f "$include" ]] && patterns_file=$include
+  [[ -z "$patterns_file" && -f "$gitignore" ]] && patterns_file=$gitignore
+  [[ -z "$patterns_file" ]] && return 0
+
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
+    [[ -z "$pattern" || "$pattern" =~ ^[#!] ]] && continue
+
+    if [[ "$patterns_file" == "$include" && -f "$gitignore" ]] && ! grep -qFx "$pattern" "$gitignore"; then
+      echo "wt: skipping '$pattern' (not in .gitignore)" >&2
+      continue
+    fi
+
+    for file in "$src"/${pattern%/}; do
+      [[ -e "$file" ]] || continue
+      local relpath=${file#"$src/"}
+      mkdir -p "$(dirname "$dest/$relpath")"
+      cp -R "$file" "$dest/$relpath"
+      echo "wt: copied $relpath"
+    done
+  done < "$patterns_file"
+}
+
+show_help() {
+  cat <<'EOF'
+Usage: wt [command] [options]
+Commands:
+  <branch>                   Add a worktree (shorthand for 'wt add')
+  list|ls                    Show active worktrees
+  add [-b base] <branch>     Add a worktree; path defaults to ../<repo>-<branch>
+  remove|rm <path|branch>    Remove a worktree by path or branch name
+  prune                      Run git worktree prune
+Examples:
+  wt feature/login
+  wt add -b main feature/login
+  wt remove feature/login
+EOF
+}
+
+[[ $# -eq 0 || "$1" =~ ^(help|--help|-h)$ ]] && { show_help; exit 0; }
+[[ "${1:-}" == "--version" ]] && { echo "wt 0.1.0"; exit 0; }
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "wt: run inside a git repository" >&2; exit 1; }
+
+repo_root=$(git rev-parse --show-toplevel)
+repo_name=$(basename "$repo_root")
+
+cmd=$1
+case "$cmd" in
+  list|ls|prune|add|new|remove|rm) shift ;;
+  *) cmd="add" ;;
+esac
+
+case "$cmd" in
+list|ls) git worktree list "$@" ;;
+prune) git worktree prune "$@" ;;
+add|new)
+  base="" path="" branch=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -b|--base) base=$2; shift 2 ;;
+      -p|--path) path=$2; shift 2 ;;
+      -h|--help) show_help; exit 0 ;;
+      *) [[ -z "$branch" ]] && branch=$1 || path=$1; shift ;;
+    esac
+  done
+  [[ -z "$branch" ]] && { echo "wt add: branch name required" >&2; exit 1; }
+  : "${path:=$(dirname "$repo_root")/${repo_name}-${branch//\//-}}"
+
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git worktree add "$path" "$branch"
+  elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git worktree add --track -b "$branch" "$path" "origin/$branch"
+  elif [[ -n "$base" ]]; then
+    git worktree add -b "$branch" "$path" "$base"
+  else
+    echo "wt add: branch '$branch' not found. Use --base <existing-branch> to create it." >&2
+    exit 1
+  fi
+  copy_worktree_files "$repo_root" "$path"
+  ;;
+remove|rm)
+  [[ $# -eq 0 ]] && { echo "wt remove: provide a path or branch name" >&2; exit 1; }
+  input=$1 target=""
+  if [[ -d "$input" ]]; then
+    target=$input
+  else
+    target=$(git worktree list --porcelain | awk -v b="$input" '/^worktree /{w=$2} /^branch /{gsub(/refs\/heads\//,"",$2); if($2==b){print w;exit}}')
+    [[ -z "$target" ]] && guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}" && [[ -d "$guess" ]] && target=$guess
+  fi
+  [[ -z "$target" ]] && { echo "wt remove: unable to resolve worktree for '$input'" >&2; exit 1; }
+  git worktree remove "$target"
+  ;;
+esac
