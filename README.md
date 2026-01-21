@@ -1,6 +1,21 @@
 # wt
 
-A simple git worktree manager. Creates worktrees at `../<repo>-<branch>`.
+A better git worktree workflow. One command to create a worktree, copy your
+`.env` files, and start coding.
+
+```sh
+wt feature/login    # creates ../myrepo-feature-login with your .env files
+```
+
+**Why wt?**
+
+- **Auto-copies `.env` files** - No more manual copying of gitignored config
+  files to new worktrees
+- **Sensible defaults** - Creates worktrees at `../<repo>-<branch>`, branches
+  from current
+- **Minimal syntax** - Just `wt <branch>` instead of
+  `git worktree add -b branch ../path branch`
+- **Auto-cd** - Optional shell integration to cd into the new worktree
 
 ## Installation
 
@@ -19,7 +34,8 @@ chmod +x /usr/local/bin/wt
 
 ## Shell Setup (auto-cd)
 
-To automatically cd into new worktrees after creation, add to your `.bashrc` or `.zshrc`:
+To automatically cd into new worktrees after creation, add to your `.bashrc` or
+`.zshrc`:
 
 ```sh
 # If installed via Homebrew:
@@ -31,7 +47,8 @@ wt() { local p; p=$(command wt "$@") && [[ -d "$p" ]] && cd "$p" || echo "$p"; }
 
 ### Bonus: Launch Claude Code after
 
-Add a `wtc` function to your shell config to create a worktree and start coding with Claude:
+Add a `wtc` function to your shell config to create a worktree and start coding
+with Claude:
 
 ```sh
 # In your .zshrc or .bashrc
@@ -48,6 +65,7 @@ Commands:
   list|ls                    Show active worktrees
   add [options] <branch>     Add a worktree
   remove|rm <path|branch>    Remove a worktree by path or branch name
+  back                       Go to the main worktree
   prune                      Run git worktree prune
 
 Options for add:
@@ -76,30 +94,29 @@ wt list
 
 # Remove a worktree by branch name
 wt remove feature/login
+
+# Go back to the main worktree
+wt back
 ```
 
-## File Copying
+## Automatic File Copying
 
-When creating a worktree, `wt` can automatically copy gitignored files (like `.env`) to the new worktree.
+By default, `wt` copies gitignored files (like `.env`, `.env.local`) to new
+worktrees so you can start working immediately.
 
-### .worktreeinclude
-
-Create a `.worktreeinclude` file in your repo root to specify which files to copy:
+Alternatively, you can explicitly list which ignored files to copy by creating a
+`.worktreeinclude` file:
 
 ```
 .env
 .env.local
+config/local.json
 ```
 
-Each pattern must also exist in `.gitignore` (to prevent copying tracked files).
+Files in `.worktreeinclude` must also be in `.gitignore` (prevents accidentally
+copying tracked files).
 
-### Fallback
-
-If no `.worktreeinclude` exists, `wt` falls back to copying all files matching patterns in `.gitignore` that exist in the source worktree.
-
-### Skipping
-
-Use `--no-copy` to skip file copying entirely.
+**Skip copying**: Use `--no-copy` for a clean worktree without any copied files.
 
 ## License
 
