@@ -29,6 +29,14 @@ source "$(brew --prefix)/share/wt/wt.sh"
 wt() { local p; p=$(command wt "$@") && [[ -d "$p" ]] && cd "$p" || echo "$p"; }
 ```
 
+### Bonus: Launch Claude Code after
+
+Create a `wtc` function to create a worktree and start coding with Claude:
+
+```sh
+wtc() { wt "$@" && claude; }
+```
+
 ## Usage
 
 ```
