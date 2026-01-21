@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.1"
+VERSION="0.1.2"
 
 show_help() {
   cat <<'EOF'
@@ -70,15 +70,15 @@ add_worktree() {
   : "${path:=$(dirname "$repo_root")/${repo_name}-${branch//\//-}}"
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git worktree add "$path" "$branch"
+    git worktree add "$path" "$branch" >&2
   elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-    git worktree add --track -b "$branch" "$path" "origin/$branch"
+    git worktree add --track -b "$branch" "$path" "origin/$branch" >&2
   else
     : "${base:=$(git branch --show-current)}"
-    git worktree add -b "$branch" "$path" "$base"
+    git worktree add -b "$branch" "$path" "$base" >&2
   fi
 
-  [[ "$no_copy" == false ]] && copy_worktree_files "$repo_root" "$path"
+  [[ "$no_copy" == false ]] && copy_worktree_files "$repo_root" "$path" >&2
   echo "$path"
 }
 
