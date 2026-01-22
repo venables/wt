@@ -118,6 +118,33 @@ copying tracked files).
 
 **Skip copying**: Use `--no-copy` for a clean worktree without any copied files.
 
+## Releasing
+
+1. Update `VERSION` in `bin/wt`:
+
+   ```sh
+   # Edit bin/wt and change VERSION="0.1.2" to VERSION="0.1.3"
+   ```
+
+2. Commit and tag:
+
+   ```sh
+   git add bin/wt
+   git commit -m "chore: bump version to 0.1.3"
+   git tag v0.1.3
+   git push origin main --tags
+   ```
+
+3. Get the SHA256 of the release tarball:
+
+   ```sh
+   curl -sL https://github.com/venables/wt/archive/refs/tags/v0.1.3.tar.gz | shasum -a 256
+   ```
+
+4. Update [venables/homebrew-tap](https://github.com/venables/homebrew-tap):
+
+   Edit `Formula/wt.rb` with the new version and SHA256.
+
 ## License
 
 MIT
