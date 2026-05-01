@@ -1,31 +1,198 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.3"
+VERSION="0.2.0"
+
+WT_HOOKS_DIR="${WT_HOOKS_DIR:-$HOME/.config/wt/hooks}"
+STRICT=false
 
 show_help() {
-  cat <<'EOF'
-Usage: wt [command] [options]
-Commands:
-  <branch>                   Add a worktree (shorthand for 'wt add')
-  list|ls                    Show active worktrees
-  add [options] <branch>     Add a worktree; path defaults to ../<repo>-<branch>
-  remove|rm <path|branch>    Remove a worktree by path or branch name
-  back                       Go to the main worktree (use with shell wrapper)
-  prune                      Run git worktree prune
-Options for add:
-  -b, --base <branch>        Base branch (defaults to current branch)
-  -p, --path <path>          Custom worktree path
-  --no-copy                  Skip copying .worktreeinclude/.gitignore files
-Examples:
-  wt feature/login           Create branch from current, add worktree
-  wt add -b main hotfix      Create hotfix from main
-  wt add --no-copy feature   Skip file copying
-  wt remove feature/login
+  cat <<EOF
+Usage: wt <command> [args]
+
+Worktree commands:
+  <branch>                       Shorthand for 'wt create <branch>'
+  create <branch> [opts]         Create a worktree, run post-worktree-add hook
+  rm|remove <branch|path>        Remove worktree (runs pre-worktree-remove hook)
+  list|ls                        List worktrees with state
+  enter <branch|path>            Print worktree path (runs post-worktree-enter)
+  run <branch|path> -- <cmd>     Run a command inside a worktree
+  back                           Print main worktree path
+  prune                          Run git worktree prune
+
+State commands (run inside a worktree):
+  state get <key>                Read a state value
+  state set <key> <value>        Set a state value
+  state unset <key>              Remove a state key
+  state list                     Print full state json
+
+Maintenance:
+  doctor                         Sanity checks
+  run-hook <name> [opts]         Test a hook with synthetic env
+
+Options for create:
+  -b, --base <branch>            Base branch (defaults to current)
+  -p, --path <path>              Custom worktree path
+  --no-copy                      Skip .worktreeinclude/.gitignore copying
+  --no-hook                      Skip running post-worktree-add hook
+
+Global flags:
+  --strict                       post-* hook failures abort instead of warn
+  --version                      Show version
+  --help, -h                     Show help
+
+Hooks live in \$WT_HOOKS_DIR (default: ~/.config/wt/hooks).
+Each hook receives env vars: WT_PATH WT_BRANCH WT_REPO_ROOT WT_REPO_NAME
+
 Shell function (add to .bashrc/.zshrc for auto-cd):
-  wt() { local p; p=$(command wt "$@") && [[ -d "$p" ]] && cd "$p" || echo "$p"; }
+  wt() { local p; p=\$(command wt "\$@") && [[ -d "\$p" ]] && cd "\$p" || echo "\$p"; }
 EOF
 }
+
+# ---------- helpers ----------
+
+require_jq() {
+  command -v jq >/dev/null 2>&1 || {
+    echo "wt: jq is required for state/list operations" >&2
+    exit 1
+  }
+}
+
+git_common_dir() {
+  local d
+  d=$(git rev-parse --git-common-dir)
+  [[ "$d" = /* ]] || d="$PWD/$d"
+  (cd "$d" && pwd)
+}
+
+ensure_wt_excluded() {
+  local exclude
+  exclude="$(git_common_dir)/info/exclude"
+  mkdir -p "$(dirname "$exclude")"
+  [[ -f "$exclude" ]] || : > "$exclude"
+  grep -qFx '/.wt/' "$exclude" 2>/dev/null && return 0
+  printf '\n# wt: per-worktree state\n/.wt/\n' >> "$exclude"
+}
+
+resolve_worktree() {
+  local input=$1
+  if [[ -d "$input" ]]; then
+    (cd "$input" && pwd)
+    return 0
+  fi
+  local target
+  target=$(git worktree list --porcelain | awk -v b="$input" '
+    /^worktree /{w=$2}
+    /^branch /{
+      gsub(/refs\/heads\//,"",$2)
+      if($2==b){print w; exit}
+    }
+  ')
+  if [[ -n "$target" ]]; then
+    echo "$target"
+    return 0
+  fi
+  local guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}"
+  if [[ -d "$guess" ]]; then
+    echo "$guess"
+    return 0
+  fi
+  return 1
+}
+
+worktree_branch() {
+  local path=$1
+  git worktree list --porcelain | awk -v p="$path" '
+    /^worktree /{w=$2}
+    /^branch /{if(w==p){gsub(/refs\/heads\//,"",$2); print $2; exit}}
+  '
+}
+
+# ---------- state ----------
+
+state_file_for() { echo "$1/.wt/state.json"; }
+
+state_init() {
+  local path=$1 file
+  file=$(state_file_for "$path")
+  mkdir -p "$(dirname "$file")"
+  [[ -f "$file" ]] || echo '{}' > "$file"
+}
+
+state_get() {
+  require_jq
+  local path=$1 key=$2 file
+  file=$(state_file_for "$path")
+  [[ -f "$file" ]] || return 0
+  jq -r --arg k "$key" '.[$k] // empty' "$file"
+}
+
+state_set() {
+  require_jq
+  local path=$1 key=$2 value=$3 file tmp
+  file=$(state_file_for "$path")
+  mkdir -p "$(dirname "$file")"
+  [[ -f "$file" ]] || echo '{}' > "$file"
+  tmp=$(mktemp "${file}.XXXXXX")
+  jq --arg k "$key" --arg v "$value" '.[$k] = $v' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+state_unset() {
+  require_jq
+  local path=$1 key=$2 file tmp
+  file=$(state_file_for "$path")
+  [[ -f "$file" ]] || return 0
+  tmp=$(mktemp "${file}.XXXXXX")
+  jq --arg k "$key" 'del(.[$k])' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+state_dump() {
+  local path=$1 file
+  file=$(state_file_for "$path")
+  [[ -f "$file" ]] && cat "$file" || echo '{}'
+}
+
+# ---------- hooks ----------
+
+run_hook() {
+  local name=$1 wt_path=$2 branch=$3
+  local hook="$WT_HOOKS_DIR/$name"
+  [[ -x "$hook" ]] || return 0
+  echo "wt: running hook $name" >&2
+  WT_PATH="$wt_path" \
+  WT_BRANCH="$branch" \
+  WT_REPO_ROOT="$repo_root" \
+  WT_REPO_NAME="$repo_name" \
+    "$hook" >&2
+}
+
+run_pre_hook() {
+  local name=$1 wt_path=$2 branch=$3
+  local rc=0
+  run_hook "$name" "$wt_path" "$branch" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    echo "wt: $name failed (exit $rc), aborting" >&2
+    return "$rc"
+  fi
+}
+
+run_post_hook() {
+  local name=$1 wt_path=$2 branch=$3
+  local rc=0
+  run_hook "$name" "$wt_path" "$branch" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    if [[ "$STRICT" == true ]]; then
+      echo "wt: $name failed (exit $rc), aborting (--strict)" >&2
+      return "$rc"
+    fi
+    echo "wt: $name failed (exit $rc), continuing" >&2
+  fi
+  return 0
+}
+
+# ---------- file copy (kept for backward compat) ----------
 
 copy_worktree_files() {
   local src=$1 dest=$2
@@ -49,26 +216,31 @@ copy_worktree_files() {
       local relpath=${file#"$src/"}
       mkdir -p "$(dirname "$dest/$relpath")"
       cp -R "$file" "$dest/$relpath"
-      echo "wt: copied $relpath"
+      echo "wt: copied $relpath" >&2
     done
   done < "$patterns_file"
 }
 
-add_worktree() {
-  local base="" path="" branch="" no_copy=false
+# ---------- commands ----------
+
+cmd_create() {
+  local base="" path="" branch="" no_copy=false no_hook=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -b|--base) base=$2; shift 2 ;;
       -p|--path) path=$2; shift 2 ;;
       --no-copy) no_copy=true; shift ;;
+      --no-hook) no_hook=true; shift ;;
       -h|--help) show_help; exit 0 ;;
       *) [[ -z "$branch" ]] && branch=$1 || path=$1; shift ;;
     esac
   done
 
-  [[ -z "$branch" ]] && { echo "wt add: branch name required" >&2; exit 1; }
+  [[ -z "$branch" ]] && { echo "wt create: branch name required" >&2; exit 1; }
   : "${path:=$(dirname "$repo_root")/${repo_name}-${branch//\//-}}"
+
+  run_pre_hook pre-worktree-add "$path" "$branch" || exit $?
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     git worktree add "$path" "$branch" >&2
@@ -79,48 +251,247 @@ add_worktree() {
     git worktree add -b "$branch" "$path" "$base" >&2
   fi
 
-  [[ "$no_copy" == false ]] && copy_worktree_files "$repo_root" "$path" >&2
+  ensure_wt_excluded
+  state_init "$path"
+
+  [[ "$no_copy" == false ]] && copy_worktree_files "$repo_root" "$path"
+
+  if [[ "$no_hook" == false ]]; then
+    if ! run_post_hook post-worktree-add "$path" "$branch"; then
+      echo "" >&2
+      echo "wt: post-worktree-add failed. Worktree exists at:" >&2
+      echo "    $path" >&2
+      echo "wt: To reset, run: wt rm $branch" >&2
+      exit 1
+    fi
+  fi
+
   echo "$path"
 }
 
-back_to_main() {
+cmd_remove() {
+  [[ $# -eq 0 ]] && { echo "wt rm: provide a path or branch name" >&2; exit 1; }
+  local target branch
+  target=$(resolve_worktree "$1") || {
+    echo "wt rm: unable to resolve worktree for '$1'" >&2
+    exit 1
+  }
+  branch=$(worktree_branch "$target")
+
+  run_pre_hook pre-worktree-remove "$target" "$branch" || exit $?
+  git worktree remove "$target" >&2
+  run_post_hook post-worktree-remove "$target" "$branch" || true
+}
+
+cmd_list() {
+  if ! command -v jq >/dev/null 2>&1; then
+    git worktree list "$@"
+    return
+  fi
+  git worktree list --porcelain | awk '
+    /^worktree /{wt=$2; br="(detached)"}
+    /^branch /{gsub(/refs\/heads\//,"",$2); br=$2}
+    /^$/{if(wt){print wt"\t"br; wt=""; br=""}}
+    END{if(wt) print wt"\t"br}
+  ' | while IFS=$'\t' read -r wt br; do
+    local summary=""
+    if [[ -f "$wt/.wt/state.json" ]]; then
+      summary=$(jq -r 'to_entries | map("\(.key)=\(.value)") | join(" ")' "$wt/.wt/state.json" 2>/dev/null || true)
+    fi
+    if [[ -n "$summary" ]]; then
+      printf '%s  [%s]  %s\n' "$wt" "$br" "$summary"
+    else
+      printf '%s  [%s]\n' "$wt" "$br"
+    fi
+  done
+}
+
+cmd_enter() {
+  [[ $# -eq 0 ]] && { echo "wt enter: provide a path or branch" >&2; exit 1; }
+  local target branch
+  target=$(resolve_worktree "$1") || {
+    echo "wt enter: unable to resolve '$1'" >&2
+    exit 1
+  }
+  branch=$(worktree_branch "$target")
+  run_post_hook post-worktree-enter "$target" "$branch" || true
+  echo "$target"
+}
+
+cmd_run() {
+  [[ $# -lt 2 ]] && { echo "wt run: usage: wt run <branch|path> -- <cmd...>" >&2; exit 1; }
+  local target
+  target=$(resolve_worktree "$1") || {
+    echo "wt run: unable to resolve '$1'" >&2
+    exit 1
+  }
+  shift
+  [[ "${1:-}" == "--" ]] && shift
+  [[ $# -eq 0 ]] && { echo "wt run: command required" >&2; exit 1; }
+  (cd "$target" && "$@")
+}
+
+cmd_back() {
   git worktree list --porcelain | awk '/^worktree /{print $2; exit}'
 }
 
-remove_worktree() {
-  [[ $# -eq 0 ]] && { echo "wt remove: provide a path or branch name" >&2; exit 1; }
-
-  local input=$1 target=""
-
-  if [[ -d "$input" ]]; then
-    target=$input
-  else
-    target=$(git worktree list --porcelain | awk -v b="$input" '/^worktree /{w=$2} /^branch /{gsub(/refs\/heads\//,"",$2); if($2==b){print w;exit}}')
-    [[ -z "$target" ]] && guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}" && [[ -d "$guess" ]] && target=$guess
-  fi
-
-  [[ -z "$target" ]] && { echo "wt remove: unable to resolve worktree for '$input'" >&2; exit 1; }
-  git worktree remove "$target"
+cmd_prune() {
+  git worktree prune "$@" >&2
 }
 
-# Main
-[[ $# -eq 0 || "$1" =~ ^(help|--help|-h)$ ]] && { show_help; exit 0; }
-[[ "${1:-}" == "--version" ]] && { echo "wt $VERSION"; exit 0; }
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "wt: run inside a git repository" >&2; exit 1; }
+cmd_state() {
+  local sub=${1:-list}
+  shift || true
+  local wt_root
+  wt_root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+    echo "wt state: must be run inside a worktree" >&2
+    exit 1
+  }
+  case "$sub" in
+    get)
+      [[ $# -lt 1 ]] && { echo "wt state get <key>" >&2; exit 1; }
+      state_get "$wt_root" "$1"
+      ;;
+    set)
+      [[ $# -lt 2 ]] && { echo "wt state set <key> <value>" >&2; exit 1; }
+      state_set "$wt_root" "$1" "$2"
+      ;;
+    unset)
+      [[ $# -lt 1 ]] && { echo "wt state unset <key>" >&2; exit 1; }
+      state_unset "$wt_root" "$1"
+      ;;
+    list)
+      state_dump "$wt_root"
+      ;;
+    *)
+      echo "wt state: unknown subcommand '$sub'" >&2
+      exit 1
+      ;;
+  esac
+}
 
-repo_root=$(git rev-parse --show-toplevel)
-repo_name=$(basename "$repo_root")
+cmd_doctor() {
+  local ok=true
+  printf 'git:    '
+  if command -v git >/dev/null 2>&1; then
+    git --version
+  else
+    echo 'MISSING'; ok=false
+  fi
+  printf 'jq:     '
+  if command -v jq >/dev/null 2>&1; then
+    jq --version
+  else
+    echo 'MISSING (state and list decoration will fail)'; ok=false
+  fi
+  printf 'hooks:  %s\n' "$WT_HOOKS_DIR"
+  if [[ -d "$WT_HOOKS_DIR" ]]; then
+    local hooks
+    hooks=$(find "$WT_HOOKS_DIR" -maxdepth 1 -type f -perm -u+x 2>/dev/null | sort)
+    if [[ -n "$hooks" ]]; then
+      while IFS= read -r h; do
+        printf '        %s\n' "$(basename "$h")"
+      done <<< "$hooks"
+    else
+      echo '        (no executable hooks found)'
+    fi
+  else
+    echo '        (directory does not exist)'
+  fi
+  if [[ -n "${repo_name:-}" ]]; then
+    local exclude
+    exclude="$(git_common_dir)/info/exclude"
+    printf 'repo:   %s\n' "$repo_name"
+    if [[ -f "$exclude" ]] && grep -qFx '/.wt/' "$exclude"; then
+      echo '        .wt/ excluded: yes'
+    else
+      echo '        .wt/ excluded: no (will be added on next create)'
+    fi
+  fi
+  $ok
+}
+
+cmd_run_hook() {
+  local name="" branch="testing" path=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch) branch=$2; shift 2 ;;
+      --path) path=$2; shift 2 ;;
+      -h|--help) echo "Usage: wt run-hook <name> [--branch X] [--path Y]" >&2; exit 0 ;;
+      *) [[ -z "$name" ]] && name=$1 || { echo "wt run-hook: unexpected arg '$1'" >&2; exit 1; }; shift ;;
+    esac
+  done
+  [[ -z "$name" ]] && { echo "wt run-hook: hook name required" >&2; exit 1; }
+  : "${path:=$repo_root}"
+  local hook="$WT_HOOKS_DIR/$name"
+  [[ -x "$hook" ]] || { echo "wt run-hook: $hook not found or not executable" >&2; exit 1; }
+  WT_PATH="$path" \
+  WT_BRANCH="$branch" \
+  WT_REPO_ROOT="$repo_root" \
+  WT_REPO_NAME="$repo_name" \
+    "$hook"
+}
+
+# ---------- main ----------
+
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --strict) STRICT=true ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+if (( ${#ARGS[@]} == 0 )); then
+  set --
+else
+  set -- "${ARGS[@]}"
+fi
+
+[[ $# -eq 0 ]] && { show_help; exit 0; }
+case "$1" in
+  -h|--help|help) show_help; exit 0 ;;
+  --version) echo "wt $VERSION"; exit 0 ;;
+esac
 
 cmd=$1
 case "$cmd" in
-  list|ls|prune|add|new|remove|rm|back) shift ;;
-  *) cmd="add" ;;
+  list|ls|prune|create|add|new|remove|rm|back|enter|run|state|doctor|run-hook)
+    shift ;;
+  *)
+    cmd=create
+    ;;
 esac
 
+if [[ "$cmd" == "doctor" ]]; then
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    repo_root=$(git rev-parse --show-toplevel)
+    main_repo=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+    repo_name=$(basename "$main_repo")
+  else
+    repo_root=""
+    repo_name=""
+  fi
+  cmd_doctor
+  exit $?
+fi
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "wt: run inside a git repository" >&2
+  exit 1
+}
+
+repo_root=$(git rev-parse --show-toplevel)
+main_repo=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+repo_name=$(basename "$main_repo")
+
 case "$cmd" in
-  list|ls) git worktree list "$@" ;;
-  prune)   git worktree prune "$@" ;;
-  add|new) add_worktree "$@" ;;
-  remove|rm) remove_worktree "$@" ;;
-  back) back_to_main ;;
+  list|ls)        cmd_list "$@" ;;
+  prune)          cmd_prune "$@" ;;
+  create|add|new) cmd_create "$@" ;;
+  remove|rm)      cmd_remove "$@" ;;
+  back)           cmd_back ;;
+  enter)          cmd_enter "$@" ;;
+  run)            cmd_run "$@" ;;
+  state)          cmd_state "$@" ;;
+  run-hook)       cmd_run_hook "$@" ;;
 esac
