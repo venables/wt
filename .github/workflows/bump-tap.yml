@@ -1,0 +1,52 @@
+name: Bump Homebrew tap
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap
+        uses: actions/checkout@v4
+        with:
+          repository: venables/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Update formula
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          tarball="https://github.com/venables/wt/archive/refs/tags/${TAG}.tar.gz"
+
+          # Retry: GitHub occasionally serves the archive a few seconds after
+          # the tag push event arrives.
+          sha=$(curl --retry 6 --retry-delay 5 --retry-all-errors -sfL "$tarball" | shasum -a 256 | cut -d' ' -f1)
+          [[ -n "$sha" ]] || { echo "failed to compute sha"; exit 1; }
+          echo "version=$version sha=$sha"
+
+          sed -i \
+            -e "s|^  url .*|  url \"$tarball\"|" \
+            -e "s|^  sha256 .*|  sha256 \"$sha\"|" \
+            -e "s|^    assert_match \"wt [0-9.]*\".*|    assert_match \"wt $version\", shell_output(\"#{bin}/wt --version\")|" \
+            Formula/wt.rb
+
+      - name: Commit and push
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/wt.rb
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+            exit 0
+          fi
+          git commit -m "wt: bump to ${version}"
+          git push
