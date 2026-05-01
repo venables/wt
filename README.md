@@ -183,20 +183,24 @@ vars without touching git. Useful for iterating on hook scripts.
 
 ## Automatic File Copying
 
-By default, `wt` copies gitignored files (like `.env`, `.env.local`) to new
-worktrees so you can start working immediately.
+By default, `wt` reads `.gitignore` and copies any **regular files** it lists
+(like `.env`, `.env.local`) to new worktrees so you can start working
+immediately. Directories in `.gitignore` (`node_modules/`, `dist/`, `.next/`,
+etc.) are skipped — copying them would be slow and pointless.
 
-Alternatively, you can explicitly list which ignored files to copy by creating a
-`.worktreeinclude` file:
+If you want to copy a directory or have explicit control over what gets
+copied, add a `.worktreeinclude` file at the repo root:
 
 ```
 .env
 .env.local
 config/local.json
+secrets/
 ```
 
-Files in `.worktreeinclude` must also be in `.gitignore` (prevents accidentally
-copying tracked files).
+When `.worktreeinclude` exists it takes precedence over the `.gitignore`
+fallback, and entries can be files or directories. Each entry must also be in
+`.gitignore` (prevents accidentally copying tracked files).
 
 **Skip copying**: Use `--no-copy` for a clean worktree without any copied files.
 

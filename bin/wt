@@ -197,22 +197,33 @@ run_post_hook() {
 copy_worktree_files() {
   local src=$1 dest=$2
   local include="$src/.worktreeinclude" gitignore="$src/.gitignore"
-  local patterns_file=""
+  local patterns_file="" from_include=false
 
-  [[ -f "$include" ]] && patterns_file=$include
-  [[ -z "$patterns_file" && -f "$gitignore" ]] && patterns_file=$gitignore
+  if [[ -f "$include" ]]; then
+    patterns_file=$include
+    from_include=true
+  elif [[ -f "$gitignore" ]]; then
+    patterns_file=$gitignore
+  fi
   [[ -z "$patterns_file" ]] && return 0
 
   while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     [[ -z "$pattern" || "$pattern" =~ ^[#!] ]] && continue
 
-    if [[ "$patterns_file" == "$include" && -f "$gitignore" ]] && ! grep -qFx "$pattern" "$gitignore"; then
+    if [[ "$from_include" == true && -f "$gitignore" ]] && ! grep -qFx "$pattern" "$gitignore"; then
       echo "wt: skipping '$pattern' (not in .gitignore)" >&2
       continue
     fi
 
     for file in "$src"/${pattern%/}; do
       [[ -e "$file" ]] || continue
+      # When falling back to .gitignore, only copy regular files so we
+      # don't drag in node_modules/, dist/, .venv/, etc. List dirs in
+      # .worktreeinclude to opt in explicitly.
+      if [[ "$from_include" == false && -d "$file" ]]; then
+        echo "wt: skipping directory '${file#"$src/"}' (use .worktreeinclude to copy)" >&2
+        continue
+      fi
       local relpath=${file#"$src/"}
       mkdir -p "$(dirname "$dest/$relpath")"
       cp -R "$file" "$dest/$relpath"
