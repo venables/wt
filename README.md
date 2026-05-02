@@ -64,17 +64,11 @@ Worktree commands:
   <branch>                       Shorthand for 'wt create <branch>'
   create <branch> [opts]         Create a worktree, run post-worktree-add hook
   rm|remove <branch|path>        Remove worktree (runs pre-worktree-remove hook)
-  list|ls                        List worktrees with state
+  list|ls                        List worktrees
   enter <branch|path>            Print worktree path (runs post-worktree-enter)
   run <branch|path> -- <cmd>     Run a command inside a worktree
   back                           Print main worktree path
   prune                          Run git worktree prune
-
-State commands (run inside a worktree):
-  state get <key>                Read a state value
-  state set <key> <value>        Set a state value
-  state unset <key>              Remove a state key
-  state list                     Print full state json
 
 Maintenance:
   doctor                         Sanity checks
@@ -105,15 +99,11 @@ wt -b main feature/new-thing
 # Create worktree without copying files
 wt --no-copy feature/quick-fix
 
-# List all worktrees with their per-worktree state
+# List all worktrees
 wt list
 
 # Run a command inside a worktree without cd
 wt run feature/login -- pnpm test
-
-# Read/write per-worktree state from a hook or your shell
-wt state set db_name catena_test_login
-wt state get db_name
 
 # Remove a worktree by branch name
 wt remove feature/login
@@ -148,13 +138,12 @@ but setup is incomplete; `wt` prints recovery instructions and you can re-run
 the hook (`wt run-hook post-worktree-add --branch X --path Y`) or reset with
 `wt rm <branch>`.
 
-### Per-worktree state
+### Philosophy
 
-`wt` stores state at `<worktree>/.wt/state.json`. Hooks use `wt state set/get`
-to record what they allocated (db name, ports, tmux session, etc.) and
-`pre-worktree-remove` reads it back to tear those resources down. The first
-`wt create` in a repo adds `/.wt/` to the repo's `.git/info/exclude` so this
-directory is git-ignored automatically.
+`wt` itself stays small: create worktrees, copy the files you need, run hooks,
+clean up. Anything project-specific — trusting tool versions, installing
+dependencies, provisioning a database — belongs in a hook. That keeps the CLI
+boring and lets each repo do exactly what it needs.
 
 ### Example hook
 
@@ -163,17 +152,20 @@ directory is git-ignored automatically.
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Per-repo branching: only run setup logic for repos that need it
-case "$WT_REPO_NAME" in
-  catena)
-    # symlink env files
-    ln -sf "$WT_REPO_ROOT/.env" "$WT_PATH/.env"
-    # create db
-    db="catena_test_${WT_BRANCH//[^a-z0-9_]/_}"
-    createdb -T catena_dev "$db"
-    wt state set db_name "$db"
-    ;;
-esac
+cd "$WT_PATH"
+
+# Trust the new worktree's mise config
+if command -v mise >/dev/null 2>&1; then
+  mise trust
+fi
+
+if [[ -f pnpm-lock.yaml ]]; then
+  pnpm install --frozen-lockfile
+elif [[ -f bun.lock || -f bun.lockb ]]; then
+  bun install --frozen-lockfile
+elif [[ -f package-lock.json ]]; then
+  npm ci
+fi
 ```
 
 ### Testing hooks
@@ -209,22 +201,22 @@ fallback, and entries can be files or directories. Each entry must also be in
 1. Update `VERSION` in `bin/wt`:
 
    ```sh
-   # Edit bin/wt and change VERSION="0.2.0" to the new version
+   # Edit bin/wt and change VERSION="0.3.0" to the new version
    ```
 
 2. Commit and tag:
 
    ```sh
    git add bin/wt
-   git commit -m "chore: bump version to 0.2.0"
-   git tag v0.2.0
+   git commit -m "chore: bump version to 0.3.0"
+   git tag v0.3.0
    git push origin main --tags
    ```
 
 3. Get the SHA256 of the release tarball:
 
    ```sh
-   curl -sL https://github.com/venables/wt/archive/refs/tags/v0.2.0.tar.gz | shasum -a 256
+   curl -sL https://github.com/venables/wt/archive/refs/tags/v0.3.0.tar.gz | shasum -a 256
    ```
 
 4. Update [venables/homebrew-tap](https://github.com/venables/homebrew-tap):

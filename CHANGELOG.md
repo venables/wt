@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0]
+
+### Removed
+
+- Per-worktree state (`wt state` subcommand, `<worktree>/.wt/state.json`,
+  and the automatic `/.wt/` entry in `.git/info/exclude`). Hooks should
+  manage their own scratch storage if they need it.
+- `jq` is no longer a dependency.
+
+### Changed
+
+- `wt list` now delegates directly to `git worktree list`.
+
 ## [0.2.0]
 
 ### Added
@@ -70,7 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: `wt <branch>`, `wt list`, `wt remove`, `wt prune`, and
   automatic copying of gitignored config files into new worktrees.
 
-[Unreleased]: https://github.com/venables/wt/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/venables/wt/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/venables/wt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/venables/wt/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/venables/wt/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/venables/wt/compare/v0.1.1...v0.1.2
