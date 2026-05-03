@@ -63,11 +63,14 @@ wt <command> [args]
 Worktree commands:
   <branch>                       Shorthand for 'wt create <branch>'
   create <branch> [opts]         Create a worktree, run post-worktree-add hook
-  rm|remove <branch|path>        Remove worktree (runs pre-worktree-remove hook)
+  rm|remove [-f] <branch|path>   Remove worktree (runs pre-worktree-remove hook)
   list|ls                        List worktrees
   enter <branch|path>            Print worktree path (runs post-worktree-enter)
   run <branch|path> -- <cmd>     Run a command inside a worktree
   back                           Print main worktree path
+  done [-f|--force]              Remove current worktree, return to main
+  cleanup                        Interactively remove non-main worktrees
+  nuke [-y|--yes]                Force-remove ALL non-main worktrees
   prune                          Run git worktree prune
 
 Maintenance:
@@ -108,8 +111,20 @@ wt run feature/login -- pnpm test
 # Remove a worktree by branch name
 wt remove feature/login
 
+# Force-remove a dirty worktree
+wt rm -f feature/login
+
 # Go back to the main worktree
 wt back
+
+# Done with this branch: remove current worktree and cd to main
+wt done
+
+# Pick worktrees to remove from a list (status shows merged/unmerged)
+wt cleanup
+
+# Wipe every non-main worktree (with confirmation)
+wt nuke
 ```
 
 ## Hooks
