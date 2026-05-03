@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0]
+
+### Added
+
+- `wt done [-f]` removes the current worktree and returns to main.
+- `wt cleanup` shows an interactive picker (with merged/unmerged status)
+  for removing non-main worktrees.
+- `wt nuke [-y]` force-removes every non-main worktree.
+- `-f|--force` flag on `wt rm` for removing dirty worktrees.
+
 ## [0.3.0]
 
 ### Removed
