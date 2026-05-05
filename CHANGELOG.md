@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1]
+
+### Added
+
+- `wt clean` is now an alias for `wt cleanup`.
+
+### Changed
+
+- README intro rewritten to highlight the CLI ergonomics, sane defaults,
+  and hook system.
+
 ## [0.4.0]
 
 ### Added
@@ -93,7 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: `wt <branch>`, `wt list`, `wt remove`, `wt prune`, and
   automatic copying of gitignored config files into new worktrees.
 
-[Unreleased]: https://github.com/venables/wt/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/venables/wt/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/venables/wt/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/venables/wt/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/venables/wt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/venables/wt/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/venables/wt/compare/v0.1.2...v0.1.3
