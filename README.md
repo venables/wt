@@ -1,21 +1,30 @@
 # wt
 
-A better git worktree workflow. One command to create a worktree, copy your
-`.env` files, and start coding.
+**`git worktree` with a better CLI, sane defaults, and hooks.**
+
+One command to spin up a worktree, copy your `.env` files, run your setup, and
+drop you into a ready-to-code directory.
 
 ```sh
-wt feature/login    # creates ../myrepo-feature-login with your .env files
+wt feature/login    # creates ../myrepo-feature-login, copies .env, runs your hook, cds in
 ```
+
+Stop typing `git worktree add -b feature/login ../myrepo-feature-login feature/login`
+and then manually copying `.env` files and running `pnpm install`. Just `wt feature/login`.
 
 **Why wt?**
 
-- **Auto-copies `.env` files** - No more manual copying of gitignored config
-  files to new worktrees
-- **Sensible defaults** - Creates worktrees at `../<repo>-<branch>`, branches
-  from current
-- **Minimal syntax** - Just `wt <branch>` instead of
-  `git worktree add -b branch ../path branch`
-- **Auto-cd** - Optional shell integration to cd into the new worktree
+- **A CLI that fits in your head** — `wt <branch>` to create, `wt done` to
+  finish, `wt back` to return to main, `wt cleanup` to tidy up. No more
+  five-argument `git worktree add` incantations.
+- **Sane defaults** — Worktrees land at `../<repo>-<branch>`, new branches
+  fork from your current branch, and `.env` files come along automatically so
+  nothing is broken on first `cd`.
+- **Hooks, hooks, hooks** — `pre`/`post` hooks for add, remove, and enter let
+  every repo do its own thing: `pnpm install`, `mise trust`, seed a database,
+  warm a cache, page your dog. `wt` stays small; your hooks do the rest.
+- **Shell-native** — Optional auto-cd into new worktrees, plus a one-liner to
+  launch Claude Code (or any other tool) the moment the worktree is ready.
 
 ## Installation
 
