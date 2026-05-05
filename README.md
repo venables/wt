@@ -188,6 +188,11 @@ elif [[ -f package-lock.json ]]; then
 fi
 ```
 
+A reference `post-worktree-add` hook that copies common dotenv files lives at
+[`share/hooks/post-worktree-add.example`](share/hooks/post-worktree-add.example).
+Drop it in `~/.config/wt/hooks/` (and pair with `wt --no-copy`) if you'd
+rather handle file copying explicitly from a hook.
+
 ### Testing hooks
 
 `wt run-hook <name> [--branch X] [--path Y]` runs a hook with synthetic env

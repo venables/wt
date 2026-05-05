@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Example post-worktree-add hook.
+#
+# Copies dotenv files from the main repo into the new worktree. Pair with
+# `wt --no-copy` if you want hook-based copying instead of the built-in
+# .gitignore/.worktreeinclude behavior. Tweak the patterns to fit your repo.
+#
+# Install:
+#   install -Dm755 share/hooks/post-worktree-add.example \
+#     ~/.config/wt/hooks/post-worktree-add
+
+set -euo pipefail
+shopt -s nullglob
+
+cd "$WT_REPO_ROOT"
+
+for src in .env .env.* .envrc; do
+  [[ -f "$src" ]] || continue
+  cp "$src" "$WT_PATH/$src"
+  echo "wt: copied $src" >&2
+done
