@@ -78,7 +78,7 @@ Worktree commands:
   run <branch|path> -- <cmd>     Run a command inside a worktree
   back                           Print main worktree path
   done [-f|--force]              Remove current worktree, return to main
-  cleanup                        Interactively remove non-main worktrees
+  cleanup|clean                  Interactively remove non-main worktrees
   nuke [-y|--yes]                Force-remove ALL non-main worktrees
   prune                          Run git worktree prune
 
