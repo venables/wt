@@ -99,6 +99,11 @@ wt feature/new-thing
 # Create a new branch from main
 wt -b main feature/new-thing
 
+# Note: running `wt <branch>` from inside another worktree branches off
+# *that* worktree's branch and creates the new directory as its sibling.
+# Pass `-b main` (or `--base main`) to branch from main regardless of
+# where you invoke from.
+
 # Create worktree without copying files
 wt --no-copy feature/quick-fix
 
