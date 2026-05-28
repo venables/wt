@@ -3,6 +3,18 @@
 #   source "$(brew --prefix)/share/wt/wt.sh"
 
 wt() {
+  # Recover from a deleted cwd. If another tab removed the worktree this shell
+  # is sitting in (e.g. via `wt done`), getcwd() fails and git, bash, and mise
+  # all error out. Walk up to the nearest existing ancestor and cd there first
+  # so the command below runs from a valid directory.
+  if [[ ! -d "$PWD" ]]; then
+    local dir=$PWD
+    while [[ -n "$dir" && ! -d "$dir" ]]; do
+      dir=${dir%/*}
+    done
+    cd "${dir:-/}" 2>/dev/null || cd "$HOME" || return 1
+  fi
+
   local output
   output=$(command wt "$@")
   local exit_code=$?
