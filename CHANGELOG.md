@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2]
+
+### Fixed
+
+- Shell wrapper recovers from a deleted current directory. When another
+  tab removes the worktree a shell is sitting in (e.g. via `wt done`),
+  the wrapper now cd's to the nearest existing ancestor before running
+  `wt`, instead of failing with `getcwd` / git / mise errors.
+
 ## [0.4.1]
 
 ### Added
@@ -104,7 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: `wt <branch>`, `wt list`, `wt remove`, `wt prune`, and
   automatic copying of gitignored config files into new worktrees.
 
-[Unreleased]: https://github.com/venables/wt/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/venables/wt/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/venables/wt/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/venables/wt/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/venables/wt/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/venables/wt/compare/v0.2.0...v0.3.0
