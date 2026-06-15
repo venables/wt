@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1]
+
+### Changed
+
+- `wt cleanup`'s gum picker now pre-checks merged worktrees, since a branch
+  already in main is the safe default to remove. Toggle any off before
+  confirming.
+
 ## [0.5.0]
 
 ### Added
