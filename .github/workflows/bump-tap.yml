@@ -3,14 +3,14 @@ name: Bump Homebrew tap
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: venables/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
