@@ -7,6 +7,8 @@ drop you into a ready-to-code directory.
 
 ```sh
 wt feature/login    # creates ../myrepo-feature-login, copies .env, runs your hook, cds in
+# ... do work, make a PR
+wt done             # cleans up, drops you back in myrepo
 ```
 
 Stop typing `git worktree add -b feature/login ../myrepo-feature-login feature/login`
@@ -25,6 +27,8 @@ and then manually copying `.env` files and running `pnpm install`. Just `wt feat
   warm a cache, page your dog. `wt` stays small; your hooks do the rest.
 - **Shell-native** — Optional auto-cd into new worktrees, plus a one-liner to
   launch Claude Code (or any other tool) the moment the worktree is ready.
+- **Read more** — [Why I built wt](https://venabl.es/wt) and
+  [Cleaning up worktrees with wt](https://venabl.es/wt-cleanup).
 
 ## Installation
 
