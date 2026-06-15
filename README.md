@@ -41,6 +41,14 @@ curl -o /usr/local/bin/wt https://raw.githubusercontent.com/venables/wt/main/bin
 chmod +x /usr/local/bin/wt
 ```
 
+### Optional dependencies
+
+`wt cleanup` uses [`gum`](https://github.com/charmbracelet/gum) for its
+interactive multi-select picker when it's on your `PATH`, and falls back to a
+plain numbered prompt otherwise. The Homebrew formula installs `gum`
+automatically; for the manual install, add it with `brew install gum`. Run
+`wt doctor` to see what's detected.
+
 ## Shell Setup (auto-cd)
 
 To automatically cd into new worktrees after creation, add to your `.bashrc` or
@@ -134,7 +142,10 @@ wt back
 # Done with this branch: remove current worktree and cd to main
 wt done
 
-# Pick worktrees to remove from a list (status shows merged/unmerged)
+# Pick worktrees to remove from an interactive list. Each row shows whether the
+# branch is merged, how far ahead/behind main it is, and when it last changed.
+# Uses gum (https://github.com/charmbracelet/gum) for a multi-select picker when
+# installed; falls back to a numbered prompt otherwise.
 wt cleanup
 
 # Wipe every non-main worktree (with confirmation)
