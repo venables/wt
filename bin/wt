@@ -316,21 +316,31 @@ cmd_done() {
 # Reads the worktree arrays and appends chosen indices to to_remove via bash
 # dynamic scoping. Returns 2 on cancel / empty selection.
 cleanup_select_gum() {
-  local labels=() i label
+  local labels=() preselect=() i label
   for i in "${!paths[@]}"; do
     printf -v label '%-9s  %-26s  ↑%-3s ↓%-3s  %-13s  %s' \
       "${statuses[i]}" "${branches[i]}" "${aheads[i]}" "${behinds[i]}" \
       "${ages[i]}" "${paths[i]}"
     labels+=("$label")
+    [[ "${statuses[i]}" == "merged" ]] && preselect+=("$label")
   done
 
   local height=$(( ${#labels[@]} + 1 ))
   (( height > 20 )) && height=20
 
+  # Pre-check merged worktrees: they're already in main, so they're the safe
+  # default to remove. gum's --selected is a comma-separated list of items.
+  local gum_args=(--no-limit --height "$height" \
+    --header "Select worktrees to remove (merged pre-checked; space toggles, enter confirms, esc cancels)")
+  if (( ${#preselect[@]} > 0 )); then
+    local oldifs=$IFS
+    IFS=,
+    gum_args+=("--selected=${preselect[*]}")
+    IFS=$oldifs
+  fi
+
   local selected
-  if ! selected=$(gum choose --no-limit --height "$height" \
-    --header "Select worktrees to remove (space toggles, enter confirms, esc cancels)" \
-    "${labels[@]}"); then
+  if ! selected=$(gum choose "${gum_args[@]}" "${labels[@]}"); then
     echo "wt cleanup: cancelled" >&2
     return 2
   fi
