@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0]
+
+### Added
+
+- `wt cleanup` uses [`gum`](https://github.com/charmbracelet/gum) for an
+  interactive multi-select picker when it is installed, falling back to the
+  numbered prompt otherwise.
+- `wt cleanup` now shows each worktree's staleness: how many commits it is
+  ahead of / behind the main branch, and when it last changed.
+- `wt doctor` reports whether `gum` is installed.
+
 ## [0.4.2]
 
 ### Fixed
