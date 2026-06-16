@@ -189,6 +189,21 @@ cmd_create() {
   done
 
   [[ -z "$branch" ]] && { echo "wt create: branch name required" >&2; exit 1; }
+
+  # If the branch is already checked out in a worktree, enter it instead of
+  # letting `git worktree add` fail with "already used by worktree at ...".
+  local existing
+  existing=$(git worktree list --porcelain | awk -v b="$branch" '
+    /^worktree /{w=substr($0, 10)}
+    /^branch /{gsub(/refs\/heads\//,"",$2); if($2==b){print w; exit}}
+  ')
+  if [[ -n "$existing" ]]; then
+    echo "wt: '$branch' already checked out at $existing, entering it" >&2
+    run_post_hook post-worktree-enter "$existing" "$branch" || true
+    echo "$existing"
+    return 0
+  fi
+
   : "${path:=$(dirname "$repo_root")/${repo_name}-${branch//\//-}}"
 
   run_pre_hook pre-worktree-add "$path" "$branch" || exit $?
