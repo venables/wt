@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.5.1"
+VERSION="0.6.0"
 
 WT_HOOKS_DIR="${WT_HOOKS_DIR:-$HOME/.config/wt/hooks}"
 STRICT=false
