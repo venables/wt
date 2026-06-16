@@ -83,7 +83,7 @@ wt <command> [args]
 
 Worktree commands:
   <branch>                       Shorthand for 'wt create <branch>'
-  create <branch> [opts]         Create a worktree, run post-worktree-add hook
+  create <branch> [opts]         Create a worktree (enters it if it already exists)
   rm|remove [-f] <branch|path>   Remove worktree (runs pre-worktree-remove hook)
   list|ls                        List worktrees
   enter <branch|path>            Print worktree path (runs post-worktree-enter)

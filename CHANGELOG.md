@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `wt create <branch>` (and the bare `wt <branch>` shorthand) now enters the
+  existing worktree when the branch is already checked out elsewhere, instead
+  of failing with git's "already used by worktree at ..." error. Runs the
+  `post-worktree-enter` hook, just like `wt enter`.
+
 ## [0.5.1]
 
 ### Changed
