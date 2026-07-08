@@ -67,34 +67,62 @@ main_worktree() {
   list_worktrees | awk -F'\t' 'NR==1{print $1; exit}'
 }
 
-# Path of the worktree checked out on <branch>, or empty.
+# Path of the worktree checked out on <branch>, or empty. Parses the `branch`
+# lines directly (rather than list_worktrees) so it only ever matches a real
+# branch: a worktree literally named "(detached)" won't collide with the
+# detached-HEAD sentinel list_worktrees prints for display. The branch value is
+# passed via the environment rather than `awk -v` so a backslash in the name is
+# not mangled by -v's C-escape processing.
 worktree_for_branch() {
   local branch=$1
-  list_worktrees | awk -F'\t' -v b="$branch" '$2==b{print $1; exit}'
+  git worktree list --porcelain | wt_b="$branch" awk '
+    /^worktree /{ w=substr($0, 10) }
+    /^branch /{ name=$0; sub(/^branch refs\/heads\//,"",name); if(name==ENVIRON["wt_b"]){print w; exit} }
+  '
 }
 
 resolve_worktree() {
   local input=$1
-  if [[ -d "$input" ]]; then
-    # Map the directory back to git's canonical worktree path by comparing
-    # physical paths, so a symlinked path (e.g. /tmp -> /private/tmp) resolves
-    # and a directory that isn't a registered worktree is rejected.
-    local phys wt rest
-    phys=$(cd "$input" && pwd -P)
-    while IFS=$'\t' read -r wt rest; do
-      if [[ "$(cd "$wt" 2>/dev/null && pwd -P)" == "$phys" ]]; then
-        echo "$wt"
-        return 0
-      fi
-    done < <(list_worktrees)
-    # Not a registered worktree; fall through to branch/guess resolution.
-  fi
+
+  # A branch name takes precedence, so `wt enter foo` targets branch foo's
+  # worktree even when a directory named foo happens to sit in the cwd.
   local target
   target=$(worktree_for_branch "$input")
   if [[ -n "$target" ]]; then
     echo "$target"
     return 0
   fi
+
+  # A directory argument resolves to the canonical root of the worktree that
+  # contains it, comparing physical paths so a symlinked path (e.g.
+  # /tmp -> /private/tmp) resolves. An exact worktree root wins over a mere
+  # ancestor, and the longest matching prefix wins so a worktree nested inside
+  # another resolves to the innermost. Directories outside every worktree fall
+  # through and are ultimately rejected. "$wtphys" is quoted in the pattern so
+  # glob metacharacters in a worktree path are matched literally.
+  if [[ -d "$input" ]]; then
+    local phys wt rest wtphys prefix="" prefix_len=0
+    phys=$(cd "$input" && pwd -P)
+    while IFS=$'\t' read -r wt rest; do
+      wtphys=$(cd "$wt" 2>/dev/null && pwd -P) || continue
+      if [[ "$phys" == "$wtphys" ]]; then
+        echo "$wt"
+        return 0
+      elif [[ "$phys" == "$wtphys"/* && ${#wtphys} -gt $prefix_len ]]; then
+        prefix=$wt
+        prefix_len=${#wtphys}
+      fi
+    done < <(list_worktrees)
+    if [[ -n "$prefix" ]]; then
+      echo "$prefix"
+      return 0
+    fi
+    # An existing directory outside every worktree is not a branch name either,
+    # so reject it rather than fall through to the guess convention (which could
+    # otherwise resolve to an unrelated same-named sibling directory).
+    return 1
+  fi
+
   local guess
   guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}"
   if [[ -d "$guess" ]]; then
@@ -104,11 +132,17 @@ resolve_worktree() {
   return 1
 }
 
+# Branch checked out at <path>, or empty for a detached worktree. Parses the
+# porcelain per-record (like worktree_for_branch) so a branch named "(detached)"
+# is reported as itself rather than confused with a real detached HEAD.
 worktree_branch() {
-  local path=$1 branch
-  branch=$(list_worktrees | awk -F'\t' -v p="$path" '$1==p{print $2; exit}')
-  [[ "$branch" == "(detached)" ]] && branch=""
-  printf '%s' "$branch"
+  local path=$1
+  git worktree list --porcelain | wt_p="$path" awk '
+    /^worktree /{ w=substr($0, 10); br="" }
+    /^branch /{ br=$0; sub(/^branch refs\/heads\//,"",br) }
+    /^$/{ if(w==ENVIRON["wt_p"]){ found=1; result=br } }
+    END{ if(found){ print result } else if(w==ENVIRON["wt_p"]){ print br } }
+  '
 }
 
 # ---------- hooks ----------

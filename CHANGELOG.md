@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `WT_BRANCH`.
 - Passing a directory that is not a registered worktree to `wt rm` now fails
   cleanly instead of running the `pre-worktree-remove` hook against it.
+- A directory argument that points inside a worktree (a subdirectory) now
+  resolves to that worktree's canonical root, so `wt enter`/`wt rm`/`wt run`
+  behave the same whether given the worktree root or a path within it.
+- Branch names now take precedence over an incidentally same-named directory in
+  the current path, so `wt enter foo` targets branch `foo`'s worktree rather
+  than a local `foo/` directory.
+- A branch literally named `(detached)` is no longer confused with the
+  detached-HEAD display sentinel, so it resolves to its own worktree.
 
 ## [0.6.0]
 
