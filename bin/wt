@@ -48,25 +48,55 @@ EOF
 
 # ---------- helpers ----------
 
+# Outputs tab-separated <path>\t<branch> for every worktree, one per line.
+# Detached worktrees are emitted as "(detached)". Paths may contain spaces, so
+# we capture everything after the leading "worktree " keyword. Every other
+# porcelain consumer is built on top of this so the space handling lives in one
+# place.
+list_worktrees() {
+  git worktree list --porcelain | awk '
+    function flush() { if(w) print w "\t" (b ? b : "(detached)") }
+    /^worktree /{ flush(); w=substr($0, 10); b="" }
+    /^branch /{ gsub(/refs\/heads\//,"",$2); b=$2 }
+    END{ flush() }
+  '
+}
+
+# Path of the main working tree (git always lists it first).
+main_worktree() {
+  list_worktrees | awk -F'\t' 'NR==1{print $1; exit}'
+}
+
+# Path of the worktree checked out on <branch>, or empty.
+worktree_for_branch() {
+  local branch=$1
+  list_worktrees | awk -F'\t' -v b="$branch" '$2==b{print $1; exit}'
+}
+
 resolve_worktree() {
   local input=$1
   if [[ -d "$input" ]]; then
-    (cd "$input" && pwd)
-    return 0
+    # Map the directory back to git's canonical worktree path by comparing
+    # physical paths, so a symlinked path (e.g. /tmp -> /private/tmp) resolves
+    # and a directory that isn't a registered worktree is rejected.
+    local phys wt rest
+    phys=$(cd "$input" && pwd -P)
+    while IFS=$'\t' read -r wt rest; do
+      if [[ "$(cd "$wt" 2>/dev/null && pwd -P)" == "$phys" ]]; then
+        echo "$wt"
+        return 0
+      fi
+    done < <(list_worktrees)
+    # Not a registered worktree; fall through to branch/guess resolution.
   fi
   local target
-  target=$(git worktree list --porcelain | awk -v b="$input" '
-    /^worktree /{w=$2}
-    /^branch /{
-      gsub(/refs\/heads\//,"",$2)
-      if($2==b){print w; exit}
-    }
-  ')
+  target=$(worktree_for_branch "$input")
   if [[ -n "$target" ]]; then
     echo "$target"
     return 0
   fi
-  local guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}"
+  local guess
+  guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}"
   if [[ -d "$guess" ]]; then
     echo "$guess"
     return 0
@@ -75,23 +105,10 @@ resolve_worktree() {
 }
 
 worktree_branch() {
-  local path=$1
-  git worktree list --porcelain | awk -v p="$path" '
-    /^worktree /{w=$2}
-    /^branch /{if(w==p){gsub(/refs\/heads\//,"",$2); print $2; exit}}
-  '
-}
-
-# Outputs tab-separated <path>\t<branch> for every worktree, one per line.
-# Detached worktrees are emitted as "(detached)". Paths may contain spaces, so
-# we capture everything after the leading "worktree " keyword.
-list_worktrees() {
-  git worktree list --porcelain | awk '
-    function flush() { if(w) print w "\t" (b ? b : "(detached)") }
-    /^worktree /{ flush(); w=substr($0, 10); b="" }
-    /^branch /{ gsub(/refs\/heads\//,"",$2); b=$2 }
-    END{ flush() }
-  '
+  local path=$1 branch
+  branch=$(list_worktrees | awk -F'\t' -v p="$path" '$1==p{print $2; exit}')
+  [[ "$branch" == "(detached)" ]] && branch=""
+  printf '%s' "$branch"
 }
 
 # ---------- hooks ----------
@@ -193,10 +210,7 @@ cmd_create() {
   # If the branch is already checked out in a worktree, enter it instead of
   # letting `git worktree add` fail with "already used by worktree at ...".
   local existing
-  existing=$(git worktree list --porcelain | awk -v b="$branch" '
-    /^worktree /{w=substr($0, 10)}
-    /^branch /{gsub(/refs\/heads\//,"",$2); if($2==b){print w; exit}}
-  ')
+  existing=$(worktree_for_branch "$branch")
   if [[ -n "$existing" ]]; then
     echo "wt: '$branch' already checked out at $existing, entering it" >&2
     run_post_hook post-worktree-enter "$existing" "$branch" || true
@@ -288,7 +302,7 @@ cmd_run() {
 }
 
 cmd_back() {
-  git worktree list --porcelain | awk '/^worktree /{print $2; exit}'
+  main_worktree
 }
 
 cmd_done() {
@@ -705,7 +719,7 @@ esac
 if [[ "$cmd" == "doctor" ]]; then
   if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     repo_root=$(git rev-parse --show-toplevel)
-    main_repo=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+    main_repo=$(main_worktree)
     repo_name=$(basename "$main_repo")
   else
     repo_root=""
@@ -721,7 +735,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
 }
 
 repo_root=$(git rev-parse --show-toplevel)
-main_repo=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+main_repo=$(main_worktree)
 repo_name=$(basename "$main_repo")
 
 case "$cmd" in

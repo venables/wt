@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Worktree resolution no longer truncates paths that contain spaces. `wt back`,
+  `wt enter`, `wt run`, `wt rm`, `wt done`, `wt cleanup`, and `wt nuke` all now
+  handle repositories checked out under a directory with a space in its name.
+- `wt enter`/`wt rm`/`wt run` with a directory argument now resolve it to git's
+  canonical worktree path by comparing physical paths, so symlinked paths (e.g.
+  macOS `/tmp` -> `/private/tmp`) resolve correctly and hooks receive the right
+  `WT_BRANCH`.
+- Passing a directory that is not a registered worktree to `wt rm` now fails
+  cleanly instead of running the `pre-worktree-remove` hook against it.
+
 ## [0.6.0]
 
 ### Changed
