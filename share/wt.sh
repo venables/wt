@@ -20,10 +20,14 @@ wt() {
   output=$(command wt "$@")
   local exit_code=$?
 
-  if [[ $exit_code -eq 0 && -d "$output" ]]; then
+  # Relocate whenever wt printed an existing directory, regardless of exit code:
+  # `wt rm`/`done` of the current worktree print the main path and may still exit
+  # non-zero (e.g. a strict post-remove hook failed), and we must not leave the
+  # shell sitting in the now-deleted worktree.
+  if [[ -d "$output" ]]; then
     cd "$output" || return 1
-  else
-    [[ -n "$output" ]] && echo "$output"
+  elif [[ -n "$output" ]]; then
+    echo "$output"
   fi
 
   return $exit_code
