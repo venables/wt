@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `wt create` now rejects unknown options and a stray second positional argument
+  instead of silently treating them as a branch name or worktree path. Use
+  `-p`/`--path` to set a custom path.
+
 ### Fixed
 
 - Worktree resolution no longer truncates paths that contain spaces. `wt back`,

@@ -14,6 +14,12 @@ setup() {
   # Isolate from any real hooks in ~/.config/wt/hooks.
   export WT_HOOKS_DIR="$TMP/no-hooks"
 
+  # Isolate from the user's global git config (signing, hooks, aliases) so the
+  # setup commit works regardless of commit.gpgsign etc.
+  export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
+  export GIT_CONFIG_SYSTEM=/dev/null
+  : >"$GIT_CONFIG_GLOBAL"
+
   mkdir -p "$REPO"
   cd "$REPO"
   git init -q -b main
@@ -98,6 +104,19 @@ add_worktree() { # <branch> <path>
   run wtout run feat -- printf '%s\n' --strict
   [ "$status" -eq 0 ]
   [ "$output" = "--strict" ]
+}
+
+@test "--strict survives a run payload even without the -- separator" {
+  add_worktree feat "$TMP/repo-feat"
+  run wtout run feat printf '%s\n' --strict
+  [ "$status" -eq 0 ]
+  [ "$output" = "--strict" ]
+}
+
+@test "an unknown top-level option is rejected" {
+  run "$WT" --frob
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unknown option"* ]]
 }
 
 @test "create rejects an unknown option" {
