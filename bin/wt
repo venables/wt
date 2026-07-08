@@ -722,12 +722,19 @@ cmd_run_hook() {
 
 # ---------- main ----------
 
+# Pull the global --strict flag out of the args, but stop at the first "--" so a
+# --strict meant for a `wt run <wt> -- <cmd> --strict` payload is left untouched.
 ARGS=()
+past_ddash=false
 for a in "$@"; do
-  case "$a" in
-    --strict) STRICT=true ;;
-    *) ARGS+=("$a") ;;
-  esac
+  if [[ "$past_ddash" == false ]]; then
+    [[ "$a" == "--" ]] && past_ddash=true
+    if [[ "$a" == "--strict" ]]; then
+      STRICT=true
+      continue
+    fi
+  fi
+  ARGS+=("$a")
 done
 if (( ${#ARGS[@]} == 0 )); then
   set --
