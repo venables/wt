@@ -299,11 +299,25 @@ cmd_remove() {
   branch=$(worktree_branch "$target")
 
   run_pre_hook pre-worktree-remove "$target" "$branch" || exit $?
+
+  # If we're removing the worktree we're standing in, step out to main first so
+  # the shell wrapper can relocate us and the post-hook doesn't run from a
+  # deleted cwd (matches `wt done`).
+  local return_to=""
+  if [[ "$target" == "$repo_root" ]]; then
+    return_to=$main_repo
+    cd "$return_to"
+  fi
+
   local args=()
   $force && args+=(--force)
   args+=("$target")
   git worktree remove "${args[@]}" >&2
-  run_post_hook post-worktree-remove "$target" "$branch" || exit $?
+
+  local hook_exit=0
+  run_post_hook post-worktree-remove "$target" "$branch" || hook_exit=$?
+  [[ -n "$return_to" ]] && echo "$return_to"
+  return $hook_exit
 }
 
 cmd_list() {
