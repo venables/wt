@@ -748,22 +748,23 @@ cmd_run_hook() {
 
 # Pull the global --strict flag out of the args, but stop treating it as global
 # once we reach a command payload, so a --strict meant for the command in
-# `wt run <wt> [--] <cmd> ... --strict` is left untouched. The payload begins at
-# the first "--", or immediately after the `run` subcommand (which forwards all
-# following args to the command, with or without a "--" separator).
+# `wt run <wt> [--] <cmd> ... --strict` is left untouched. Only `wt run` forwards
+# a payload: its boundary is the token after its <worktree> operand (or an
+# explicit "--"). A --strict before that operand -- e.g. `wt run --strict <wt>`
+# -- is still the global flag, not the worktree name.
 ARGS=()
 strip_strict=true
-seen_subcmd=false
+subcmd=""
 for a in "$@"; do
   if [[ "$strip_strict" == true ]]; then
     if [[ "$a" == "--strict" ]]; then
       STRICT=true
       continue
     fi
-    if [[ "$seen_subcmd" == false ]]; then
-      seen_subcmd=true
-      [[ "$a" == "run" || "$a" == "--" ]] && strip_strict=false
-    elif [[ "$a" == "--" ]]; then
+    if [[ -z "$subcmd" ]]; then
+      subcmd=$a
+      [[ "$a" == "--" ]] && strip_strict=false
+    elif [[ "$subcmd" == "run" || "$a" == "--" ]]; then
       strip_strict=false
     fi
   fi

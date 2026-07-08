@@ -113,6 +113,13 @@ add_worktree() { # <branch> <path>
   [ "$output" = "--strict" ]
 }
 
+@test "--strict before a run worktree operand is the global flag, not the worktree" {
+  add_worktree feat "$TMP/repo-feat"
+  run wtout run --strict feat -- printf '%s\n' ok
+  [ "$status" -eq 0 ]
+  [ "$output" = "ok" ]
+}
+
 @test "an unknown option is rejected" {
   run "$WT" --frob
   [ "$status" -ne 0 ]
