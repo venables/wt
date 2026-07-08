@@ -762,7 +762,7 @@ for a in "$@"; do
     fi
     if [[ "$seen_subcmd" == false ]]; then
       seen_subcmd=true
-      [[ "$a" == "run" ]] && strip_strict=false
+      [[ "$a" == "run" || "$a" == "--" ]] && strip_strict=false
     elif [[ "$a" == "--" ]]; then
       strip_strict=false
     fi
@@ -779,7 +779,6 @@ fi
 case "$1" in
   -h|--help|help) show_help; exit 0 ;;
   --version) echo "wt $VERSION"; exit 0 ;;
-  -*) echo "wt: unknown option '$1'" >&2; exit 1 ;;
 esac
 
 cmd=$1

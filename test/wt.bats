@@ -113,10 +113,16 @@ add_worktree() { # <branch> <path>
   [ "$output" = "--strict" ]
 }
 
-@test "an unknown top-level option is rejected" {
+@test "an unknown option is rejected" {
   run "$WT" --frob
   [ "$status" -ne 0 ]
   [[ "$output" == *"unknown option"* ]]
+}
+
+@test "a leading create flag still routes to create (bare shorthand)" {
+  run wtout --no-copy shorthand-branch
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TMP/repo-shorthand-branch" ]
 }
 
 @test "create rejects an unknown option" {

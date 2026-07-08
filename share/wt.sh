@@ -16,6 +16,15 @@ wt() {
     cd "${dir:-/}" 2>/dev/null || cd "$HOME" || return 1
   fi
 
+  # Find the subcommand (first arg that isn't the global --strict flag). `wt run`
+  # forwards its command's stdout, which could itself look like a path, so we
+  # never treat run's output as a directory to cd into.
+  local sub
+  for sub in "$@"; do
+    [[ "$sub" == "--strict" ]] && continue
+    break
+  done
+
   local output
   output=$(command wt "$@")
   local exit_code=$?
@@ -24,7 +33,7 @@ wt() {
   # `wt rm`/`done` of the current worktree print the main path and may still exit
   # non-zero (e.g. a strict post-remove hook failed), and we must not leave the
   # shell sitting in the now-deleted worktree.
-  if [[ -d "$output" ]]; then
+  if [[ "$sub" != "run" && -d "$output" ]]; then
     cd "$output" || return 1
   elif [[ -n "$output" ]]; then
     echo "$output"
