@@ -41,8 +41,8 @@ Global flags:
 Hooks live in \$WT_HOOKS_DIR (default: ~/.config/wt/hooks).
 Each hook receives env vars: WT_PATH WT_BRANCH WT_REPO_ROOT WT_REPO_NAME
 
-Shell function (add to .bashrc/.zshrc for auto-cd):
-  wt() { local p; p=\$(command wt "\$@") && [[ -d "\$p" ]] && cd "\$p" || echo "\$p"; }
+Auto-cd (add to .bashrc/.zshrc): source the shipped wrapper, e.g.
+  source "\$(brew --prefix)/share/wt/wt.sh"
 EOF
 }
 

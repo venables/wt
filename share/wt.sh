@@ -25,9 +25,11 @@ wt() {
     break
   done
 
-  local output
-  output=$(command wt "$@")
-  local exit_code=$?
+  # Capture the status via `|| exit_code=$?` so the relocation below still runs
+  # under `set -e` (a bare `output=$(...)` would abort the function on failure,
+  # stranding the caller in a just-removed worktree).
+  local output exit_code=0
+  output=$(command wt "$@") || exit_code=$?
 
   # Relocate whenever wt printed an existing directory, regardless of exit code:
   # `wt rm`/`done` of the current worktree print the main path and may still exit

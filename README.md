@@ -55,16 +55,22 @@ automatically; for the manual install, add it with `brew install gum`. Run
 
 ## Shell Setup (auto-cd)
 
-To automatically cd into new worktrees after creation, add to your `.bashrc` or
-`.zshrc`:
+`wt` prints the target worktree path to stdout so a shell wrapper can cd there
+for you. Source the shipped `wt.sh` from your `.bashrc` or `.zshrc`:
 
 ```sh
 # If installed via Homebrew:
 source "$(brew --prefix)/share/wt/wt.sh"
 
-# Or add this function directly:
-wt() { local p; p=$(command wt "$@") && [[ -d "$p" ]] && cd "$p" || echo "$p"; }
+# Manual install: source the wt.sh that ships next to the wt script, e.g.
+# source "$HOME/path/to/wt/share/wt.sh"
 ```
+
+The wrapper cds into new worktrees on `create`/`enter`, returns you to the main
+worktree after `wt done` or `wt rm` of the current worktree (even if a hook
+fails), and leaves `wt run`/`wt run-hook` output untouched. Prefer sourcing it
+over hand-rolling a function, since it also recovers a shell whose worktree was
+removed from another tab.
 
 ### Bonus: Launch Claude Code after
 
