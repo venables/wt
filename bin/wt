@@ -236,7 +236,10 @@ cmd_create() {
       --no-hook) no_hook=true; shift ;;
       -h|--help) show_help; exit 0 ;;
       -*) echo "wt create: unknown option '$1'" >&2; exit 1 ;;
-      *) [[ -z "$branch" ]] && branch=$1 || { echo "wt create: unexpected arg '$1' (use -p for a custom path)" >&2; exit 1; }; shift ;;
+      *)
+        if [[ -z "$branch" ]]; then branch=$1
+        else echo "wt create: unexpected arg '$1' (use -p for a custom path)" >&2; exit 1; fi
+        shift ;;
     esac
   done
 
@@ -287,7 +290,10 @@ cmd_remove() {
     case "$1" in
       -f|--force) force=true; shift ;;
       -h|--help) echo "Usage: wt rm [-f|--force] <branch|path>" >&2; exit 0 ;;
-      *) [[ -z "$input" ]] && input=$1 || { echo "wt rm: unexpected arg '$1'" >&2; exit 1; }; shift ;;
+      *)
+        if [[ -z "$input" ]]; then input=$1
+        else echo "wt rm: unexpected arg '$1'" >&2; exit 1; fi
+        shift ;;
     esac
   done
   [[ -z "$input" ]] && { echo "wt rm: provide a path or branch name" >&2; exit 1; }
@@ -721,7 +727,10 @@ cmd_run_hook() {
       --branch) branch=$2; shift 2 ;;
       --path) path=$2; shift 2 ;;
       -h|--help) echo "Usage: wt run-hook <name> [--branch X] [--path Y]" >&2; exit 0 ;;
-      *) [[ -z "$name" ]] && name=$1 || { echo "wt run-hook: unexpected arg '$1'" >&2; exit 1; }; shift ;;
+      *)
+        if [[ -z "$name" ]]; then name=$1
+        else echo "wt run-hook: unexpected arg '$1'" >&2; exit 1; fi
+        shift ;;
     esac
   done
   [[ -z "$name" ]] && { echo "wt run-hook: hook name required" >&2; exit 1; }
