@@ -235,7 +235,8 @@ cmd_create() {
       --no-copy) no_copy=true; shift ;;
       --no-hook) no_hook=true; shift ;;
       -h|--help) show_help; exit 0 ;;
-      *) [[ -z "$branch" ]] && branch=$1 || path=$1; shift ;;
+      -*) echo "wt create: unknown option '$1'" >&2; exit 1 ;;
+      *) [[ -z "$branch" ]] && branch=$1 || { echo "wt create: unexpected arg '$1' (use -p for a custom path)" >&2; exit 1; }; shift ;;
     esac
   done
 
