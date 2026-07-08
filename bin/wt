@@ -746,16 +746,25 @@ cmd_run_hook() {
 
 # ---------- main ----------
 
-# Pull the global --strict flag out of the args, but stop at the first "--" so a
-# --strict meant for a `wt run <wt> -- <cmd> --strict` payload is left untouched.
+# Pull the global --strict flag out of the args, but stop treating it as global
+# once we reach a command payload, so a --strict meant for the command in
+# `wt run <wt> [--] <cmd> ... --strict` is left untouched. The payload begins at
+# the first "--", or immediately after the `run` subcommand (which forwards all
+# following args to the command, with or without a "--" separator).
 ARGS=()
-past_ddash=false
+strip_strict=true
+seen_subcmd=false
 for a in "$@"; do
-  if [[ "$past_ddash" == false ]]; then
-    [[ "$a" == "--" ]] && past_ddash=true
+  if [[ "$strip_strict" == true ]]; then
     if [[ "$a" == "--strict" ]]; then
       STRICT=true
       continue
+    fi
+    if [[ "$seen_subcmd" == false ]]; then
+      seen_subcmd=true
+      [[ "$a" == "run" ]] && strip_strict=false
+    elif [[ "$a" == "--" ]]; then
+      strip_strict=false
     fi
   fi
   ARGS+=("$a")
@@ -770,6 +779,7 @@ fi
 case "$1" in
   -h|--help|help) show_help; exit 0 ;;
   --version) echo "wt $VERSION"; exit 0 ;;
+  -*) echo "wt: unknown option '$1'" >&2; exit 1 ;;
 esac
 
 cmd=$1
