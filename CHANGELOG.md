@@ -5,33 +5,39 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0]
+
+A deliberate slimming-down: `wt` is now five verbs plus one hook. Everything
+project-specific belongs in the `post-create` hook.
+
+### Removed
+
+- **Commands** `wt enter`, `wt run`, `wt cleanup`, `wt nuke`, `wt prune`,
+  `wt doctor`, and `wt run-hook`. `wt <branch>` already enters an existing
+  worktree, and removals are `wt rm`/`wt done`.
+- **Built-in file copying.** `.worktreeinclude`, the `.gitignore` fallback, and
+  `--no-copy` are gone. Copy `.env` files from your `post-create` hook instead
+  (see `share/hooks/post-create.example`).
+- **The multi-hook framework.** The five `pre-`/`post-worktree-*` hooks and the
+  `--strict` global flag are replaced by a single `post-create` hook. Rename
+  `~/.config/wt/hooks/post-worktree-add` to `post-create`; a failing hook now
+  warns but still leaves you in the worktree.
 
 ### Changed
 
-- `wt create` now rejects unknown options and a stray second positional argument
-  instead of silently treating them as a branch name or worktree path. Use
-  `-p`/`--path` to set a custom path.
+- `wt create` rejects unknown options and a stray second positional argument
+  instead of treating them as a branch name or path. Use `-p`/`--path` for a
+  custom path.
 
 ### Fixed
 
-- Worktree resolution no longer truncates paths that contain spaces. `wt back`,
-  `wt enter`, `wt run`, `wt rm`, `wt done`, `wt cleanup`, and `wt nuke` all now
-  handle repositories checked out under a directory with a space in its name.
-- `wt enter`/`wt rm`/`wt run` with a directory argument now resolve it to git's
-  canonical worktree path by comparing physical paths, so symlinked paths (e.g.
-  macOS `/tmp` -> `/private/tmp`) resolve correctly and hooks receive the right
-  `WT_BRANCH`.
-- Passing a directory that is not a registered worktree to `wt rm` now fails
-  cleanly instead of running the `pre-worktree-remove` hook against it.
-- A directory argument that points inside a worktree (a subdirectory) now
-  resolves to that worktree's canonical root, so `wt enter`/`wt rm`/`wt run`
-  behave the same whether given the worktree root or a path within it.
-- Branch names now take precedence over an incidentally same-named directory in
-  the current path, so `wt enter foo` targets branch `foo`'s worktree rather
-  than a local `foo/` directory.
+- `wt back`, `wt rm`, and `wt done` handle repositories checked out under a
+  directory whose name contains a space.
+- A directory argument to `wt rm` resolves against git's canonical (physical)
+  worktree paths, so symlinked paths (e.g. macOS `/tmp` -> `/private/tmp`)
+  match, and a directory that is not a registered worktree fails cleanly.
 - A branch literally named `(detached)` is no longer confused with the
-  detached-HEAD display sentinel, so it resolves to its own worktree.
+  detached-HEAD display sentinel.
 
 ## [0.6.0]
 

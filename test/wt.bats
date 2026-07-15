@@ -12,7 +12,7 @@ setup() {
   TMP="$(cd "$base" && pwd -P)"
   REPO="$TMP/repo"
   # Isolate from any real hooks in ~/.config/wt/hooks.
-  export WT_HOOKS_DIR="$TMP/no-hooks"
+  export WT_HOOKS_DIR="$TMP/hooks"
 
   # Isolate from the user's global git config (signing, hooks, aliases) so the
   # setup commit works regardless of commit.gpgsign etc.
@@ -37,6 +37,55 @@ add_worktree() { # <branch> <path>
   git worktree add -q -b "$1" "$2"
 }
 
+install_hook() { # <script-body>
+  mkdir -p "$WT_HOOKS_DIR"
+  { echo '#!/usr/bin/env bash'; echo "$1"; } >"$WT_HOOKS_DIR/post-create"
+  chmod +x "$WT_HOOKS_DIR/post-create"
+}
+
+@test "the bare shorthand creates a worktree at the guessed path" {
+  run wtout feat
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TMP/repo-feat" ]
+  [ -d "$TMP/repo-feat" ]
+}
+
+@test "creating an already-checked-out branch enters its worktree" {
+  add_worktree feat "$TMP/repo-feat"
+  run wtout feat
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TMP/repo-feat" ]
+}
+
+@test "a slash in the branch name is slugified in the path" {
+  run wtout feature/login
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TMP/repo-feature-login" ]
+}
+
+@test "create runs the post-create hook with env vars" {
+  install_hook 'echo "$WT_BRANCH:$WT_REPO_NAME" > "$WT_PATH/.hookran"'
+  run wtout feat
+  [ "$status" -eq 0 ]
+  [ -f "$TMP/repo-feat/.hookran" ]
+  [ "$(cat "$TMP/repo-feat/.hookran")" = "feat:repo" ]
+}
+
+@test "--no-hook skips the post-create hook" {
+  install_hook 'touch "$WT_PATH/.hookran"'
+  run wtout --no-hook feat
+  [ "$status" -eq 0 ]
+  [ ! -f "$TMP/repo-feat/.hookran" ]
+}
+
+@test "a failing post-create hook still creates the worktree and prints the path" {
+  install_hook 'exit 3'
+  run wtout feat
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TMP/repo-feat" ]
+  [ -d "$TMP/repo-feat" ]
+}
+
 @test "back returns the main worktree path under a spaced parent" {
   add_worktree feat "$TMP/repo-feat"
   cd "$TMP/repo-feat"
@@ -53,42 +102,11 @@ add_worktree() { # <branch> <path>
   [[ "$output" == *"$TMP/repo-feat"* ]]
 }
 
-@test "enter resolves a branch name" {
+@test "rm removes a worktree by branch name" {
   add_worktree feat "$TMP/repo-feat"
-  run wtout enter feat
+  run "$WT" rm feat
   [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-feat" ]
-}
-
-@test "a subdirectory argument resolves to its worktree root" {
-  add_worktree feat "$TMP/repo-feat"
-  mkdir -p "$TMP/repo-feat/pkg/sub"
-  run wtout enter "$TMP/repo-feat/pkg/sub"
-  [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-feat" ]
-}
-
-@test "a branch name wins over a same-named directory in the cwd" {
-  add_worktree docs "$TMP/repo-docs"
-  mkdir -p "$REPO/docs"
-  cd "$REPO"
-  run wtout enter docs
-  [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-docs" ]
-}
-
-@test "a branch literally named (detached) resolves to its own worktree" {
-  git worktree add -q --detach "$TMP/repo-det"
-  add_worktree '(detached)' "$TMP/repo-paren"
-  run wtout enter '(detached)'
-  [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-paren" ]
-}
-
-@test "a directory outside every worktree is rejected" {
-  mkdir -p "$TMP/outside"
-  run "$WT" rm "$TMP/outside"
-  [ "$status" -ne 0 ]
+  [ ! -d "$TMP/repo-feat" ]
 }
 
 @test "rm of the current worktree returns the main path" {
@@ -99,25 +117,25 @@ add_worktree() { # <branch> <path>
   [ "$output" = "$REPO" ]
 }
 
-@test "--strict is not stripped from a run payload" {
-  add_worktree feat "$TMP/repo-feat"
-  run wtout run feat -- printf '%s\n' --strict
-  [ "$status" -eq 0 ]
-  [ "$output" = "--strict" ]
+@test "rm rejects a directory outside every worktree" {
+  mkdir -p "$TMP/outside"
+  run "$WT" rm "$TMP/outside"
+  [ "$status" -ne 0 ]
 }
 
-@test "--strict survives a run payload even without the -- separator" {
+@test "done removes the current worktree and returns main" {
   add_worktree feat "$TMP/repo-feat"
-  run wtout run feat printf '%s\n' --strict
+  cd "$TMP/repo-feat"
+  run wtout done
   [ "$status" -eq 0 ]
-  [ "$output" = "--strict" ]
+  [ "$output" = "$REPO" ]
+  [ ! -d "$TMP/repo-feat" ]
 }
 
-@test "--strict before a run worktree operand is the global flag, not the worktree" {
-  add_worktree feat "$TMP/repo-feat"
-  run wtout run --strict feat -- printf '%s\n' ok
-  [ "$status" -eq 0 ]
-  [ "$output" = "ok" ]
+@test "done in the main worktree errors" {
+  cd "$REPO"
+  run "$WT" done
+  [ "$status" -ne 0 ]
 }
 
 @test "an unknown option is rejected" {
@@ -127,7 +145,7 @@ add_worktree() { # <branch> <path>
 }
 
 @test "a leading create flag still routes to create (bare shorthand)" {
-  run wtout --no-copy shorthand-branch
+  run wtout --no-hook shorthand-branch
   [ "$status" -eq 0 ]
   [ "$output" = "$TMP/repo-shorthand-branch" ]
 }

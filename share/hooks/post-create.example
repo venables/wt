@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Example post-create hook: fires after `wt <branch>` creates a worktree.
+#
+# wt itself no longer copies any files, so do it here: bring your dotenv files
+# over and install dependencies so the new worktree is ready on first cd.
+# Tweak to fit your repo, then install:
+#
+#   install -Dm755 share/hooks/post-create.example ~/.config/wt/hooks/post-create
+#
+# Env available: WT_PATH WT_BRANCH WT_REPO_ROOT WT_REPO_NAME
+
+set -euo pipefail
+shopt -s nullglob
+
+cd "$WT_REPO_ROOT"
+for src in .env .env.* .envrc; do
+  [[ -f "$src" ]] || continue
+  cp "$src" "$WT_PATH/$src"
+  echo "wt: copied $src" >&2
+done
+
+cd "$WT_PATH"
+command -v mise >/dev/null 2>&1 && mise trust >/dev/null 2>&1 || true
+
+if [[ -f pnpm-lock.yaml ]]; then
+  pnpm install --frozen-lockfile
+elif [[ -f bun.lock || -f bun.lockb ]]; then
+  bun install --frozen-lockfile
+elif [[ -f package-lock.json ]]; then
+  npm ci
+fi

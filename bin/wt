@@ -1,45 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.6.0"
+VERSION="0.7.0"
 
 WT_HOOKS_DIR="${WT_HOOKS_DIR:-$HOME/.config/wt/hooks}"
-STRICT=false
 
 show_help() {
   cat <<EOF
 Usage: wt <command> [args]
 
-Worktree commands:
-  <branch>                       Shorthand for 'wt create <branch>'
-  create <branch> [opts]         Create a worktree, run post-worktree-add hook
-  rm|remove [-f] <branch|path>   Remove worktree (runs pre-worktree-remove hook)
-  list|ls                        List worktrees
-  enter <branch|path>            Print worktree path (runs post-worktree-enter)
-  run <branch|path> -- <cmd>     Run a command inside a worktree
-  back                           Print main worktree path
-  done [-f|--force]              Remove current worktree, return to main
-  cleanup|clean                  Interactively remove non-main worktrees (uses gum if installed)
-  nuke [-y|--yes]                Force-remove ALL non-main worktrees
-  prune                          Run git worktree prune
-
-Maintenance:
-  doctor                         Sanity checks
-  run-hook <name> [opts]         Test a hook with synthetic env
+  <branch>              Create a worktree for <branch> (enters it if it exists)
+  create <branch>       Same as the shorthand, with options below
+  ls|list               List worktrees
+  rm|remove [-f] <ref>  Remove a worktree by branch name or path
+  done [-f|--force]     Remove the current worktree and return to main
+  back                  Print the main worktree path
 
 Options for create:
-  -b, --base <branch>            Base branch (defaults to current)
-  -p, --path <path>              Custom worktree path
-  --no-copy                      Skip .worktreeinclude/.gitignore copying
-  --no-hook                      Skip running post-worktree-add hook
+  -b, --base <branch>   Base branch for a new branch (defaults to current)
+  -p, --path <path>     Custom worktree path
+  --no-hook             Skip the post-create hook
 
-Global flags:
-  --strict                       post-* hook failures abort instead of warn
-  --version                      Show version
-  --help, -h                     Show help
+  --version             Show version
+  --help, -h            Show help
 
-Hooks live in \$WT_HOOKS_DIR (default: ~/.config/wt/hooks).
-Each hook receives env vars: WT_PATH WT_BRANCH WT_REPO_ROOT WT_REPO_NAME
+A single \$WT_HOOKS_DIR/post-create hook (default: ~/.config/wt/hooks) runs after
+a worktree is created, if present and executable. It receives these env vars:
+  WT_PATH WT_BRANCH WT_REPO_ROOT WT_REPO_NAME
 
 Auto-cd (add to .bashrc/.zshrc): source the shipped wrapper, e.g.
   source "\$(brew --prefix)/share/wt/wt.sh"
@@ -50,9 +37,7 @@ EOF
 
 # Outputs tab-separated <path>\t<branch> for every worktree, one per line.
 # Detached worktrees are emitted as "(detached)". Paths may contain spaces, so
-# we capture everything after the leading "worktree " keyword. Every other
-# porcelain consumer is built on top of this so the space handling lives in one
-# place.
+# we capture everything after the leading "worktree " keyword.
 list_worktrees() {
   git worktree list --porcelain | awk '
     function flush() { if(w) print w "\t" (b ? b : "(detached)") }
@@ -68,9 +53,7 @@ main_worktree() {
 }
 
 # Path of the worktree checked out on <branch>, or empty. Parses the `branch`
-# lines directly (rather than list_worktrees) so it only ever matches a real
-# branch: a worktree literally named "(detached)" won't collide with the
-# detached-HEAD sentinel list_worktrees prints for display. The branch value is
+# lines directly so it only ever matches a real branch. The branch value is
 # passed via the environment rather than `awk -v` so a backslash in the name is
 # not mangled by -v's C-escape processing.
 worktree_for_branch() {
@@ -81,158 +64,51 @@ worktree_for_branch() {
   '
 }
 
+# Resolve <branch|path> to a worktree root. A branch name wins over a directory
+# argument, which must itself be the root of a worktree.
 resolve_worktree() {
-  local input=$1
-
-  # A branch name takes precedence, so `wt enter foo` targets branch foo's
-  # worktree even when a directory named foo happens to sit in the cwd.
-  local target
+  local input=$1 target
   target=$(worktree_for_branch "$input")
-  if [[ -n "$target" ]]; then
-    echo "$target"
-    return 0
-  fi
+  if [[ -n "$target" ]]; then echo "$target"; return 0; fi
 
-  # A directory argument resolves to the canonical root of the worktree that
-  # contains it, comparing physical paths so a symlinked path (e.g.
-  # /tmp -> /private/tmp) resolves. An exact worktree root wins over a mere
-  # ancestor, and the longest matching prefix wins so a worktree nested inside
-  # another resolves to the innermost. Directories outside every worktree fall
-  # through and are ultimately rejected. "$wtphys" is quoted in the pattern so
-  # glob metacharacters in a worktree path are matched literally.
   if [[ -d "$input" ]]; then
-    local phys wt rest wtphys prefix="" prefix_len=0
+    local phys wt rest
     phys=$(cd "$input" && pwd -P)
     while IFS=$'\t' read -r wt rest; do
-      wtphys=$(cd "$wt" 2>/dev/null && pwd -P) || continue
-      if [[ "$phys" == "$wtphys" ]]; then
-        echo "$wt"
-        return 0
-      elif [[ "$phys" == "$wtphys"/* && ${#wtphys} -gt $prefix_len ]]; then
-        prefix=$wt
-        prefix_len=${#wtphys}
-      fi
+      [[ "$phys" == "$(cd "$wt" 2>/dev/null && pwd -P)" ]] && { echo "$wt"; return 0; }
     done < <(list_worktrees)
-    if [[ -n "$prefix" ]]; then
-      echo "$prefix"
-      return 0
-    fi
-    # An existing directory outside every worktree is not a branch name either,
-    # so reject it rather than fall through to the guess convention (which could
-    # otherwise resolve to an unrelated same-named sibling directory).
-    return 1
-  fi
-
-  local guess
-  guess="$(dirname "$repo_root")/${repo_name}-${input//\//-}"
-  if [[ -d "$guess" ]]; then
-    echo "$guess"
-    return 0
   fi
   return 1
 }
 
-# Branch checked out at <path>, or empty for a detached worktree. Parses the
-# porcelain per-record (like worktree_for_branch) so a branch named "(detached)"
-# is reported as itself rather than confused with a real detached HEAD.
-worktree_branch() {
-  local path=$1
-  git worktree list --porcelain | wt_p="$path" awk '
-    /^worktree /{ w=substr($0, 10); br="" }
-    /^branch /{ br=$0; sub(/^branch refs\/heads\//,"",br) }
-    /^$/{ if(w==ENVIRON["wt_p"]){ found=1; result=br } }
-    END{ if(found){ print result } else if(w==ENVIRON["wt_p"]){ print br } }
-  '
-}
+# ---------- hook ----------
 
-# ---------- hooks ----------
-
-run_hook() {
-  local name=$1 wt_path=$2 branch=$3
-  local hook="$WT_HOOKS_DIR/$name"
+run_post_create() {
+  local wt_path=$1 branch=$2
+  local hook="$WT_HOOKS_DIR/post-create"
   [[ -x "$hook" ]] || return 0
-  echo "wt: running hook $name" >&2
+  echo "wt: running post-create hook" >&2
+  local rc=0
   WT_PATH="$wt_path" \
   WT_BRANCH="$branch" \
   WT_REPO_ROOT="$repo_root" \
   WT_REPO_NAME="$repo_name" \
-    "$hook" >&2
-}
-
-run_pre_hook() {
-  local name=$1 wt_path=$2 branch=$3
-  local rc=0
-  run_hook "$name" "$wt_path" "$branch" || rc=$?
+    "$hook" >&2 || rc=$?
   if [[ $rc -ne 0 ]]; then
-    echo "wt: $name failed (exit $rc), aborting" >&2
-    return "$rc"
-  fi
-}
-
-run_post_hook() {
-  local name=$1 wt_path=$2 branch=$3
-  local rc=0
-  run_hook "$name" "$wt_path" "$branch" || rc=$?
-  if [[ $rc -ne 0 ]]; then
-    if [[ "$STRICT" == true ]]; then
-      echo "wt: $name failed (exit $rc), aborting (--strict)" >&2
-      return "$rc"
-    fi
-    echo "wt: $name failed (exit $rc), continuing" >&2
+    echo "wt: post-create hook failed (exit $rc); worktree exists at $wt_path" >&2
   fi
   return 0
-}
-
-# ---------- file copy (kept for backward compat) ----------
-
-copy_worktree_files() {
-  local src=$1 dest=$2
-  local include="$src/.worktreeinclude" gitignore="$src/.gitignore"
-  local patterns_file="" from_include=false
-
-  if [[ -f "$include" ]]; then
-    patterns_file=$include
-    from_include=true
-  elif [[ -f "$gitignore" ]]; then
-    patterns_file=$gitignore
-  fi
-  [[ -z "$patterns_file" ]] && return 0
-
-  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
-    [[ -z "$pattern" || "$pattern" =~ ^[#!] ]] && continue
-
-    if [[ "$from_include" == true && -f "$gitignore" ]] && ! grep -qFx "$pattern" "$gitignore"; then
-      echo "wt: skipping '$pattern' (not in .gitignore)" >&2
-      continue
-    fi
-
-    for file in "$src"/${pattern%/}; do
-      [[ -e "$file" ]] || continue
-      # When falling back to .gitignore, only copy regular files so we
-      # don't drag in node_modules/, dist/, .venv/, etc. List dirs in
-      # .worktreeinclude to opt in explicitly.
-      if [[ "$from_include" == false && -d "$file" ]]; then
-        echo "wt: skipping directory '${file#"$src/"}' (use .worktreeinclude to copy)" >&2
-        continue
-      fi
-      local relpath=${file#"$src/"}
-      mkdir -p "$(dirname "$dest/$relpath")"
-      cp -R "$file" "$dest/$relpath"
-      echo "wt: copied $relpath" >&2
-    done
-  done < "$patterns_file"
 }
 
 # ---------- commands ----------
 
 cmd_create() {
-  local base="" path="" branch="" no_copy=false no_hook=false
+  local base="" path="" branch="" no_hook=false
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -b|--base) base=$2; shift 2 ;;
       -p|--path) path=$2; shift 2 ;;
-      --no-copy) no_copy=true; shift ;;
       --no-hook) no_hook=true; shift ;;
       -h|--help) show_help; exit 0 ;;
       -*) echo "wt create: unknown option '$1'" >&2; exit 1 ;;
@@ -251,14 +127,11 @@ cmd_create() {
   existing=$(worktree_for_branch "$branch")
   if [[ -n "$existing" ]]; then
     echo "wt: '$branch' already checked out at $existing, entering it" >&2
-    run_post_hook post-worktree-enter "$existing" "$branch" || true
     echo "$existing"
     return 0
   fi
 
   : "${path:=$(dirname "$repo_root")/${repo_name}-${branch//\//-}}"
-
-  run_pre_hook pre-worktree-add "$path" "$branch" || exit $?
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     git worktree add "$path" "$branch" >&2
@@ -269,17 +142,7 @@ cmd_create() {
     git worktree add -b "$branch" "$path" "$base" >&2
   fi
 
-  [[ "$no_copy" == false ]] && copy_worktree_files "$repo_root" "$path"
-
-  if [[ "$no_hook" == false ]]; then
-    if ! run_post_hook post-worktree-add "$path" "$branch"; then
-      echo "" >&2
-      echo "wt: post-worktree-add failed. Worktree exists at:" >&2
-      echo "    $path" >&2
-      echo "wt: To reset, run: wt rm $branch" >&2
-      exit 1
-    fi
-  fi
+  [[ "$no_hook" == false ]] && run_post_create "$path" "$branch"
 
   echo "$path"
 }
@@ -298,18 +161,14 @@ cmd_remove() {
   done
   [[ -z "$input" ]] && { echo "wt rm: provide a path or branch name" >&2; exit 1; }
 
-  local target branch
+  local target
   target=$(resolve_worktree "$input") || {
     echo "wt rm: unable to resolve worktree for '$input'" >&2
     exit 1
   }
-  branch=$(worktree_branch "$target")
-
-  run_pre_hook pre-worktree-remove "$target" "$branch" || exit $?
 
   # If we're removing the worktree we're standing in, step out to main first so
-  # the shell wrapper can relocate us and the post-hook doesn't run from a
-  # deleted cwd (matches `wt done`).
+  # the shell wrapper can relocate us out of the deleted directory.
   local return_to=""
   if [[ "$target" == "$repo_root" ]]; then
     return_to=$main_repo
@@ -321,39 +180,13 @@ cmd_remove() {
   args+=("$target")
   git worktree remove "${args[@]}" >&2
 
-  local hook_exit=0
-  run_post_hook post-worktree-remove "$target" "$branch" || hook_exit=$?
-  [[ -n "$return_to" ]] && echo "$return_to"
-  return $hook_exit
+  if [[ -n "$return_to" ]]; then
+    echo "$return_to"
+  fi
 }
 
 cmd_list() {
   git worktree list "$@"
-}
-
-cmd_enter() {
-  [[ $# -eq 0 ]] && { echo "wt enter: provide a path or branch" >&2; exit 1; }
-  local target branch
-  target=$(resolve_worktree "$1") || {
-    echo "wt enter: unable to resolve '$1'" >&2
-    exit 1
-  }
-  branch=$(worktree_branch "$target")
-  run_post_hook post-worktree-enter "$target" "$branch" || true
-  echo "$target"
-}
-
-cmd_run() {
-  [[ $# -lt 2 ]] && { echo "wt run: usage: wt run <branch|path> -- <cmd...>" >&2; exit 1; }
-  local target
-  target=$(resolve_worktree "$1") || {
-    echo "wt run: unable to resolve '$1'" >&2
-    exit 1
-  }
-  shift
-  [[ "${1:-}" == "--" ]] && shift
-  [[ $# -eq 0 ]] && { echo "wt run: command required" >&2; exit 1; }
-  (cd "$target" && "$@")
 }
 
 cmd_back() {
@@ -376,405 +209,19 @@ cmd_done() {
     exit 1
   fi
 
-  local current=$repo_root branch
-  branch=$(worktree_branch "$current")
-
-  run_pre_hook pre-worktree-remove "$current" "$branch" || exit $?
-
-  # cd out of the worktree before removing it, so the post-hook (and the rest
-  # of this process) don't run from a deleted cwd.
+  # cd out of the worktree before removing it, so the rest of this process
+  # doesn't run from a deleted cwd.
   cd "$main_path"
 
   local args=()
   $force && args+=(--force)
-  args+=("$current")
+  args+=("$repo_root")
   git worktree remove "${args[@]}" >&2
 
-  local hook_exit=0
-  run_post_hook post-worktree-remove "$current" "$branch" || hook_exit=$?
   echo "$main_path"
-  return $hook_exit
-}
-
-# Interactive picker backed by gum (https://github.com/charmbracelet/gum).
-# Reads the worktree arrays and appends chosen indices to to_remove via bash
-# dynamic scoping. Returns 2 on cancel / empty selection.
-cleanup_select_gum() {
-  local labels=() preselect=() i label
-  for i in "${!paths[@]}"; do
-    printf -v label '%-9s  %-26s  ↑%-3s ↓%-3s  %-13s  %s' \
-      "${statuses[i]}" "${branches[i]}" "${aheads[i]}" "${behinds[i]}" \
-      "${ages[i]}" "${paths[i]}"
-    labels+=("$label")
-    [[ "${statuses[i]}" == "merged" ]] && preselect+=("$label")
-  done
-
-  local height=$(( ${#labels[@]} + 1 ))
-  (( height > 20 )) && height=20
-
-  # Pre-check merged worktrees: they're already in main, so they're the safe
-  # default to remove. gum's --selected is a comma-separated list of items.
-  local gum_args=(--no-limit --height "$height" \
-    --header "Select worktrees to remove (merged pre-checked; space toggles, enter confirms, esc cancels)")
-  if (( ${#preselect[@]} > 0 )); then
-    local oldifs=$IFS
-    IFS=,
-    gum_args+=("--selected=${preselect[*]}")
-    IFS=$oldifs
-  fi
-
-  local selected
-  if ! selected=$(gum choose "${gum_args[@]}" "${labels[@]}"); then
-    echo "wt cleanup: cancelled" >&2
-    return 2
-  fi
-  if [[ -z "$selected" ]]; then
-    echo "wt cleanup: nothing selected" >&2
-    return 2
-  fi
-
-  # Map each selected line back to its index. Labels end with the unique
-  # worktree path, so the match is unambiguous.
-  local line j
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    for j in "${!labels[@]}"; do
-      if [[ "${labels[j]}" == "$line" ]]; then
-        to_remove+=("$j")
-        break
-      fi
-    done
-  done <<<"$selected"
-}
-
-# Fallback picker for when gum is not installed: a numbered table read from the
-# tty. Supports indices, 'a'll, 'm'erged, or 'q'uit. Returns 2 on cancel.
-cleanup_select_plain() {
-  {
-    echo ""
-    printf '  %-3s  %-9s  %-26s  %s  %-13s  %s\n' \
-      '#' 'STATUS' 'BRANCH' '↑ahd ↓bhd' 'AGE' 'PATH'
-    local i
-    for i in "${!paths[@]}"; do
-      printf '  %-3s  %-9s  %-26s  ↑%-3s ↓%-3s  %-13s  %s\n' \
-        "$((i+1))" "${statuses[i]}" "${branches[i]}" \
-        "${aheads[i]}" "${behinds[i]}" "${ages[i]}" "${paths[i]}"
-    done
-    echo ""
-    echo "Select: indices (e.g. 1,3), 'a'll, 'm'erged, or 'q'uit"
-    printf "> "
-  } >&2
-
-  local input
-  if ! read -r input </dev/tty; then
-    echo "" >&2
-    echo "wt cleanup: no tty available" >&2
-    return 1
-  fi
-
-  case "$input" in
-    ""|q|Q|quit) echo "wt cleanup: cancelled" >&2; return 2 ;;
-    a|A|all)
-      local i
-      for i in "${!paths[@]}"; do to_remove+=("$i"); done
-      ;;
-    m|M|merged)
-      local i
-      for i in "${!paths[@]}"; do
-        [[ "${statuses[i]}" == "merged" ]] && to_remove+=("$i")
-      done
-      if (( ${#to_remove[@]} == 0 )); then
-        echo "wt cleanup: no merged worktrees" >&2
-        return 2
-      fi
-      ;;
-    *)
-      local n parts
-      IFS=', ' read -ra parts <<<"$input"
-      for n in "${parts[@]}"; do
-        [[ -z "$n" ]] && continue
-        if ! [[ "$n" =~ ^[0-9]+$ ]] || (( n < 1 || n > ${#paths[@]} )); then
-          echo "wt cleanup: invalid selection '$n'" >&2
-          return 1
-        fi
-        to_remove+=("$((n-1))")
-      done
-      ;;
-  esac
-}
-
-cmd_cleanup() {
-  local main_path=$main_repo
-  local main_branch
-  main_branch=$(git -C "$main_path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
-
-  local paths=() branches=() statuses=() aheads=() behinds=() ages=()
-  local p b status ahead behind age counts
-  while IFS=$'\t' read -r p b; do
-    [[ "$p" == "$main_path" ]] && continue
-    status="unmerged"
-    if [[ "$b" == "(detached)" ]]; then
-      status="detached"
-    elif [[ -n "$main_branch" ]] && \
-         git -C "$main_path" merge-base --is-ancestor "$b" "$main_branch" 2>/dev/null; then
-      status="merged"
-    fi
-
-    # Staleness relative to the main branch: ahead = commits on the branch not
-    # in main, behind = commits in main the branch is missing. Age is the
-    # relative time of the worktree's last commit (read from the worktree so it
-    # works for detached HEADs too).
-    ahead=0; behind=0
-    if [[ -n "$main_branch" && "$b" != "(detached)" ]]; then
-      counts=$(git -C "$main_path" rev-list --left-right --count \
-        "$main_branch...$b" 2>/dev/null || true)
-      if [[ "$counts" == *$'\t'* ]]; then
-        behind=${counts%%$'\t'*}
-        ahead=${counts##*$'\t'}
-      fi
-    fi
-    age=$(git -C "$p" log -1 --format=%cr 2>/dev/null || true)
-
-    paths+=("$p")
-    branches+=("$b")
-    statuses+=("$status")
-    aheads+=("$ahead")
-    behinds+=("$behind")
-    ages+=("${age:-?}")
-  done < <(list_worktrees)
-
-  if (( ${#paths[@]} == 0 )); then
-    echo "wt cleanup: no worktrees to clean up" >&2
-    return 0
-  fi
-
-  # Populate to_remove via the picker. Selection helpers rely on bash dynamic
-  # scoping to read the worktree arrays and append to to_remove. Return codes:
-  # 0 = proceed, 2 = cancelled (exit cleanly), other = error.
-  local to_remove=() rc=0
-  if command -v gum >/dev/null 2>&1; then
-    cleanup_select_gum || rc=$?
-  else
-    cleanup_select_plain || rc=$?
-  fi
-  case $rc in
-    0) ;;
-    2) return 0 ;;
-    *) return "$rc" ;;
-  esac
-
-  if (( ${#to_remove[@]} == 0 )); then
-    echo "wt cleanup: nothing selected" >&2
-    return 0
-  fi
-
-  # Dedupe while preserving order so '1,1,3' becomes '1,3'. Avoid `declare -A`
-  # and use the `${arr[@]+"${arr[@]}"}` idiom so an empty `dedup` doesn't trip
-  # `set -u` on bash 3.2 (default on macOS).
-  local dedup=() seen i j
-  for i in "${to_remove[@]}"; do
-    seen=false
-    for j in ${dedup[@]+"${dedup[@]}"}; do
-      [[ "$j" == "$i" ]] && { seen=true; break; }
-    done
-    $seen || dedup+=("$i")
-  done
-  to_remove=("${dedup[@]}")
-
-  # Move out of any worktree we're about to remove so subsequent commands and
-  # hooks don't run from a deleted cwd.
-  local removed_current=false
-  for i in "${to_remove[@]}"; do
-    [[ "${paths[i]}" == "$repo_root" ]] && removed_current=true
-  done
-  $removed_current && cd "$main_path"
-
-  local exit_code=0
-  for i in "${to_remove[@]}"; do
-    p=${paths[i]}
-    b=${branches[i]}
-    echo "wt: removing $b" >&2
-    if ! run_pre_hook pre-worktree-remove "$p" "$b"; then
-      echo "wt: skipping $b (pre-hook failed)" >&2
-      exit_code=1
-      continue
-    fi
-    if (cd "$main_path" && git worktree remove "$p") >&2; then
-      run_post_hook post-worktree-remove "$p" "$b" || exit_code=$?
-    else
-      echo "wt: failed to remove $b (commit/stash changes, or use 'wt rm -f $b')" >&2
-      exit_code=1
-    fi
-  done
-
-  $removed_current && echo "$main_path"
-  return $exit_code
-}
-
-cmd_nuke() {
-  local yes=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -y|--yes) yes=true; shift ;;
-      -h|--help) echo "Usage: wt nuke [-y|--yes]" >&2; exit 0 ;;
-      *) echo "wt nuke: unexpected arg '$1'" >&2; exit 1 ;;
-    esac
-  done
-
-  local main_path=$main_repo
-  local paths=() branches=() p b
-  while IFS=$'\t' read -r p b; do
-    [[ "$p" == "$main_path" ]] && continue
-    paths+=("$p")
-    branches+=("$b")
-  done < <(list_worktrees)
-
-  if (( ${#paths[@]} == 0 )); then
-    echo "wt nuke: no worktrees to remove" >&2
-    return 0
-  fi
-
-  if ! $yes; then
-    {
-      echo "About to FORCE remove ${#paths[@]} worktree(s):"
-      local i
-      for i in "${!paths[@]}"; do
-        printf '  %s  (%s)\n' "${branches[i]}" "${paths[i]}"
-      done
-      printf "Continue? [y/N] "
-    } >&2
-    local ans
-    if ! read -r ans </dev/tty; then
-      echo "" >&2
-      echo "wt nuke: no tty available" >&2
-      return 1
-    fi
-    [[ "$ans" =~ ^[yY] ]] || { echo "wt nuke: cancelled" >&2; return 0; }
-  fi
-
-  # If we're about to nuke the worktree we're standing in, move to main first
-  # so hooks and subsequent iterations don't run from a deleted cwd.
-  local removed_current=false i
-  for i in "${!paths[@]}"; do
-    [[ "${paths[i]}" == "$repo_root" ]] && removed_current=true
-  done
-  $removed_current && cd "$main_path"
-
-  local exit_code=0
-  for i in "${!paths[@]}"; do
-    p=${paths[i]}
-    b=${branches[i]}
-    echo "wt: force-removing $b" >&2
-    # nuke uses --force at the git level (dirty trees), but pre-hooks still
-    # get a veto so policy hooks aren't bypassed silently.
-    if ! run_pre_hook pre-worktree-remove "$p" "$b"; then
-      echo "wt: skipping $b (pre-hook failed)" >&2
-      exit_code=1
-      continue
-    fi
-    if (cd "$main_path" && git worktree remove --force "$p") >&2; then
-      run_post_hook post-worktree-remove "$p" "$b" || exit_code=$?
-    else
-      echo "wt: failed to remove $b" >&2
-      exit_code=1
-    fi
-  done
-
-  $removed_current && echo "$main_path"
-  return $exit_code
-}
-
-cmd_prune() {
-  git worktree prune "$@" >&2
-}
-
-cmd_doctor() {
-  local ok=true
-  printf 'git:    '
-  if command -v git >/dev/null 2>&1; then
-    git --version
-  else
-    echo 'MISSING'; ok=false
-  fi
-  printf 'gum:    '
-  if command -v gum >/dev/null 2>&1; then
-    gum --version
-  else
-    echo '(optional, not installed -- cleanup falls back to a numbered list)'
-  fi
-  printf 'hooks:  %s\n' "$WT_HOOKS_DIR"
-  if [[ -d "$WT_HOOKS_DIR" ]]; then
-    local hooks
-    hooks=$(find "$WT_HOOKS_DIR" -maxdepth 1 -type f -perm -u+x 2>/dev/null | sort)
-    if [[ -n "$hooks" ]]; then
-      while IFS= read -r h; do
-        printf '        %s\n' "$(basename "$h")"
-      done <<< "$hooks"
-    else
-      echo '        (no executable hooks found)'
-    fi
-  else
-    echo '        (directory does not exist)'
-  fi
-  [[ -n "${repo_name:-}" ]] && printf 'repo:   %s\n' "$repo_name"
-  $ok
-}
-
-cmd_run_hook() {
-  local name="" branch="testing" path=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --branch) branch=$2; shift 2 ;;
-      --path) path=$2; shift 2 ;;
-      -h|--help) echo "Usage: wt run-hook <name> [--branch X] [--path Y]" >&2; exit 0 ;;
-      *)
-        if [[ -z "$name" ]]; then name=$1
-        else echo "wt run-hook: unexpected arg '$1'" >&2; exit 1; fi
-        shift ;;
-    esac
-  done
-  [[ -z "$name" ]] && { echo "wt run-hook: hook name required" >&2; exit 1; }
-  : "${path:=$repo_root}"
-  local hook="$WT_HOOKS_DIR/$name"
-  [[ -x "$hook" ]] || { echo "wt run-hook: $hook not found or not executable" >&2; exit 1; }
-  WT_PATH="$path" \
-  WT_BRANCH="$branch" \
-  WT_REPO_ROOT="$repo_root" \
-  WT_REPO_NAME="$repo_name" \
-    "$hook"
 }
 
 # ---------- main ----------
-
-# Pull the global --strict flag out of the args, but stop treating it as global
-# once we reach a command payload, so a --strict meant for the command in
-# `wt run <wt> [--] <cmd> ... --strict` is left untouched. Only `wt run` forwards
-# a payload: its boundary is the token after its <worktree> operand (or an
-# explicit "--"). A --strict before that operand -- e.g. `wt run --strict <wt>`
-# -- is still the global flag, not the worktree name.
-ARGS=()
-strip_strict=true
-subcmd=""
-for a in "$@"; do
-  if [[ "$strip_strict" == true ]]; then
-    if [[ "$a" == "--strict" ]]; then
-      STRICT=true
-      continue
-    fi
-    if [[ -z "$subcmd" ]]; then
-      subcmd=$a
-      [[ "$a" == "--" ]] && strip_strict=false
-    elif [[ "$subcmd" == "run" || "$a" == "--" ]]; then
-      strip_strict=false
-    fi
-  fi
-  ARGS+=("$a")
-done
-if (( ${#ARGS[@]} == 0 )); then
-  set --
-else
-  set -- "${ARGS[@]}"
-fi
 
 [[ $# -eq 0 ]] && { show_help; exit 0; }
 case "$1" in
@@ -784,25 +231,12 @@ esac
 
 cmd=$1
 case "$cmd" in
-  list|ls|prune|create|add|new|remove|rm|back|enter|run|doctor|run-hook|done|cleanup|clean|nuke)
+  list|ls|create|add|new|remove|rm|back|done)
     shift ;;
   *)
     cmd=create
     ;;
 esac
-
-if [[ "$cmd" == "doctor" ]]; then
-  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    repo_root=$(git rev-parse --show-toplevel)
-    main_repo=$(main_worktree)
-    repo_name=$(basename "$main_repo")
-  else
-    repo_root=""
-    repo_name=""
-  fi
-  cmd_doctor
-  exit $?
-fi
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   echo "wt: run inside a git repository" >&2
@@ -815,14 +249,8 @@ repo_name=$(basename "$main_repo")
 
 case "$cmd" in
   list|ls)        cmd_list "$@" ;;
-  prune)          cmd_prune "$@" ;;
   create|add|new) cmd_create "$@" ;;
   remove|rm)      cmd_remove "$@" ;;
   back)           cmd_back ;;
   done)           cmd_done "$@" ;;
-  cleanup|clean)  cmd_cleanup "$@" ;;
-  nuke)           cmd_nuke "$@" ;;
-  enter)          cmd_enter "$@" ;;
-  run)            cmd_run "$@" ;;
-  run-hook)       cmd_run_hook "$@" ;;
 esac
