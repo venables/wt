@@ -131,7 +131,10 @@ cmd_create() {
     return 0
   fi
 
-  : "${path:=$(dirname "$repo_root")/${repo_name}-${branch//\//-}}"
+  # Worktrees sit beside the repo as <repo>.<branch>. The dot delimits repo from
+  # branch unambiguously (a hyphen would collide with hyphens in either name);
+  # slashes in the branch are slugified to hyphens for a valid path segment.
+  : "${path:=$(dirname "$repo_root")/${repo_name}.${branch//\//-}}"
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     git worktree add "$path" "$branch" >&2

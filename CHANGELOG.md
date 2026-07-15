@@ -25,6 +25,11 @@ project-specific belongs in the `post-create` hook.
 
 ### Changed
 
+- **Worktree paths now use `<repo>.<branch>` instead of `<repo>-<branch>`.** The
+  dot delimits repo from branch unambiguously even when either name contains
+  hyphens (e.g. `my-app.fix-auth`); slashes in the branch are still slugified to
+  hyphens. Existing `<repo>-<branch>` worktrees keep working (wt resolves through
+  git, not by name) but new ones land at the dotted path.
 - `wt create` rejects unknown options and a stray second positional argument
   instead of treating them as a branch name or path. Use `-p`/`--path` for a
   custom path.

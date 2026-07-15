@@ -3,19 +3,19 @@
 **`git worktree` with a CLI that fits in your head, sane defaults, and one hook.**
 
 ```sh
-wt feature/login    # creates ../myrepo-feature-login, runs your post-create hook, cds in
+wt feature/login    # creates ../myrepo.feature-login, runs your post-create hook, cds in
 # ... do work, make a PR
 wt done             # removes the worktree, drops you back in myrepo
 ```
 
-Stop typing `git worktree add -b feature/login ../myrepo-feature-login feature/login`
+Stop typing `git worktree add -b feature/login ../myrepo.feature-login feature/login`
 and then `cd` there by hand. Just `wt feature/login`.
 
 **Why wt?**
 
 - **Five verbs, no incantations** — `wt <branch>` to create, `wt done` to
   finish, `wt back` to return to main, `wt rm` to remove, `wt ls` to see them.
-- **Sane defaults** — Worktrees land at `../<repo>-<branch>`, and new branches
+- **Sane defaults** — Worktrees land at `../<repo>.<branch>`, and new branches
   fork from your current branch.
 - **One hook** — a single `post-create` hook does everything project-specific:
   copy `.env`, run `pnpm install`, trust your `mise` config, seed a database.

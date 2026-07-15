@@ -46,72 +46,72 @@ install_hook() { # <script-body>
 @test "the bare shorthand creates a worktree at the guessed path" {
   run wtout feat
   [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-feat" ]
-  [ -d "$TMP/repo-feat" ]
+  [ "$output" = "$TMP/repo.feat" ]
+  [ -d "$TMP/repo.feat" ]
 }
 
 @test "creating an already-checked-out branch enters its worktree" {
-  add_worktree feat "$TMP/repo-feat"
+  add_worktree feat "$TMP/repo.feat"
   run wtout feat
   [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-feat" ]
+  [ "$output" = "$TMP/repo.feat" ]
 }
 
 @test "a slash in the branch name is slugified in the path" {
   run wtout feature/login
   [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-feature-login" ]
+  [ "$output" = "$TMP/repo.feature-login" ]
 }
 
 @test "create runs the post-create hook with env vars" {
   install_hook 'echo "$WT_BRANCH:$WT_REPO_NAME" > "$WT_PATH/.hookran"'
   run wtout feat
   [ "$status" -eq 0 ]
-  [ -f "$TMP/repo-feat/.hookran" ]
-  [ "$(cat "$TMP/repo-feat/.hookran")" = "feat:repo" ]
+  [ -f "$TMP/repo.feat/.hookran" ]
+  [ "$(cat "$TMP/repo.feat/.hookran")" = "feat:repo" ]
 }
 
 @test "--no-hook skips the post-create hook" {
   install_hook 'touch "$WT_PATH/.hookran"'
   run wtout --no-hook feat
   [ "$status" -eq 0 ]
-  [ ! -f "$TMP/repo-feat/.hookran" ]
+  [ ! -f "$TMP/repo.feat/.hookran" ]
 }
 
 @test "a failing post-create hook still creates the worktree and prints the path" {
   install_hook 'exit 3'
   run wtout feat
   [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-feat" ]
-  [ -d "$TMP/repo-feat" ]
+  [ "$output" = "$TMP/repo.feat" ]
+  [ -d "$TMP/repo.feat" ]
 }
 
 @test "back returns the main worktree path under a spaced parent" {
-  add_worktree feat "$TMP/repo-feat"
-  cd "$TMP/repo-feat"
+  add_worktree feat "$TMP/repo.feat"
+  cd "$TMP/repo.feat"
   run wtout back
   [ "$status" -eq 0 ]
   [ "$output" = "$REPO" ]
 }
 
 @test "list emits both worktrees with a spaced path intact" {
-  add_worktree feat "$TMP/repo-feat"
+  add_worktree feat "$TMP/repo.feat"
   run "$WT" ls
   [ "$status" -eq 0 ]
   [[ "$output" == *"$REPO"* ]]
-  [[ "$output" == *"$TMP/repo-feat"* ]]
+  [[ "$output" == *"$TMP/repo.feat"* ]]
 }
 
 @test "rm removes a worktree by branch name" {
-  add_worktree feat "$TMP/repo-feat"
+  add_worktree feat "$TMP/repo.feat"
   run "$WT" rm feat
   [ "$status" -eq 0 ]
-  [ ! -d "$TMP/repo-feat" ]
+  [ ! -d "$TMP/repo.feat" ]
 }
 
 @test "rm of the current worktree returns the main path" {
-  add_worktree feat "$TMP/repo-feat"
-  cd "$TMP/repo-feat"
+  add_worktree feat "$TMP/repo.feat"
+  cd "$TMP/repo.feat"
   run wtout rm feat
   [ "$status" -eq 0 ]
   [ "$output" = "$REPO" ]
@@ -124,12 +124,12 @@ install_hook() { # <script-body>
 }
 
 @test "done removes the current worktree and returns main" {
-  add_worktree feat "$TMP/repo-feat"
-  cd "$TMP/repo-feat"
+  add_worktree feat "$TMP/repo.feat"
+  cd "$TMP/repo.feat"
   run wtout done
   [ "$status" -eq 0 ]
   [ "$output" = "$REPO" ]
-  [ ! -d "$TMP/repo-feat" ]
+  [ ! -d "$TMP/repo.feat" ]
 }
 
 @test "done in the main worktree errors" {
@@ -147,7 +147,7 @@ install_hook() { # <script-body>
 @test "a leading create flag still routes to create (bare shorthand)" {
   run wtout --no-hook shorthand-branch
   [ "$status" -eq 0 ]
-  [ "$output" = "$TMP/repo-shorthand-branch" ]
+  [ "$output" = "$TMP/repo.shorthand-branch" ]
 }
 
 @test "create rejects an unknown option" {
