@@ -47,9 +47,13 @@ list_worktrees() {
   '
 }
 
+# The awk readers below never `exit` early: that closes the pipe while git is
+# still writing, git dies of SIGPIPE, and pipefail + set -e then abort wt with
+# no message once the worktree list outgrows the pipe buffer.
+
 # Path of the main working tree (git always lists it first).
 main_worktree() {
-  list_worktrees | awk -F'\t' 'NR==1{print $1; exit}'
+  list_worktrees | awk -F'\t' 'NR==1{print $1}'
 }
 
 # Path of the worktree checked out on <branch>, or empty. Parses the `branch`
@@ -60,7 +64,7 @@ worktree_for_branch() {
   local branch=$1
   git worktree list --porcelain | wt_b="$branch" awk '
     /^worktree /{ w=substr($0, 10) }
-    /^branch /{ name=$0; sub(/^branch refs\/heads\//,"",name); if(name==ENVIRON["wt_b"]){print w; exit} }
+    /^branch /{ name=$0; sub(/^branch refs\/heads\//,"",name); if(!found && name==ENVIRON["wt_b"]){print w; found=1} }
   '
 }
 
