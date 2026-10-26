@@ -43,6 +43,28 @@ install_hook() { # <script-body>
   chmod +x "$WT_HOOKS_DIR/post-create"
 }
 
+# Shadow git so `worktree list --porcelain` emits far more than a pipe buffer
+# after the real entries. A reader that stops early then sends SIGPIPE to git,
+# which must not abort wt under pipefail.
+pad_worktree_list() {
+  export REAL_GIT
+  REAL_GIT=$(command -v git)
+  mkdir -p "$TMP/bin"
+  cat >"$TMP/bin/git" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == "worktree list --porcelain" ]]; then
+  "$REAL_GIT" "$@"
+  for i in $(seq 5000); do
+    printf 'worktree /pad/%s\nHEAD 0\nbranch refs/heads/pad-%s\n\n' "$i" "$i"
+  done
+  exit
+fi
+exec "$REAL_GIT" "$@"
+EOF
+  chmod +x "$TMP/bin/git"
+  export PATH="$TMP/bin:$PATH"
+}
+
 @test "the bare shorthand creates a worktree at the guessed path" {
   run wtout feat
   [ "$status" -eq 0 ]
@@ -55,6 +77,21 @@ install_hook() { # <script-body>
   run wtout feat
   [ "$status" -eq 0 ]
   [ "$output" = "$TMP/repo.feat" ]
+}
+
+@test "entering an existing worktree survives a long worktree list" {
+  add_worktree feat "$TMP/repo.feat"
+  pad_worktree_list
+  run wtout feat
+  [ "$status" -eq 0 ]
+  [ "$output" = "$TMP/repo.feat" ]
+}
+
+@test "back survives a long worktree list" {
+  pad_worktree_list
+  run wtout back
+  [ "$status" -eq 0 ]
+  [ "$output" = "$REPO" ]
 }
 
 @test "a slash in the branch name is slugified in the path" {
